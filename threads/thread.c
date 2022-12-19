@@ -28,6 +28,9 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* 추가 */
+static struct list sleep_list;
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -62,6 +65,8 @@ static void init_thread (struct thread *, const char *name, int priority);
 static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
+void thread_wakeup (void);
+void thread_sleep (int64_t ticks);
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -108,6 +113,7 @@ thread_init (void) {
 	/* Init the globla thread context */
 	lock_init (&tid_lock);
 	list_init (&ready_list);
+	list_init (&sleep_list); // sleep_list 초기화 추가
 	list_init (&destruction_req);
 
 	/* Set up a thread structure for the running thread. */
@@ -368,7 +374,7 @@ idle (void *idle_started_ UNUSED) {
 		intr_disable ();
 		thread_block ();
 
-		/* Re-enable interrupts and wait for the next one.
+		/* Re-enable i	intr_set_level(old_level);nterrupts and wait for the next one.
 
 		   The `sti' instruction disables interrupts until the
 		   completion of the next instruction, so these two
@@ -587,4 +593,36 @@ allocate_tid (void) {
 	lock_release (&tid_lock);
 
 	return tid;
+}
+
+void
+thread_sleep(int64_t ticks){
+	struct thread *curr = thread_current();
+	enum intr_level old_level = intr_disable();
+
+	if (curr != idle_thread){
+		list_push_back(&sleep_list, &curr->elem);
+		curr->wakeup_tick = ticks;
+	}
+	thread_block ();
+
+	intr_set_level (old_level);
+}
+
+void
+thread_wakeup(){
+
+	struct list_elem *e = list_begin(&sleep_list);
+	
+	while (e != list_end(&sleep_list)){
+		struct thread *t = list_entry(e, struct thread, elem);
+		
+	    if (--(t->wakeup_tick) <= 0){
+			e = list_remove(e);
+			list_push_back(&ready_list, &t->elem);
+		}
+		else{
+			e = list_next(e);
+		}
+	}
 }
