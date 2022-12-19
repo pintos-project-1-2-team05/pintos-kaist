@@ -10,10 +10,10 @@ enum intr_level {
 	INTR_ON               /* Interrupts enabled. */
 };
 
-enum intr_level intr_get_level (void);
-enum intr_level intr_set_level (enum intr_level);
-enum intr_level intr_enable (void);
-enum intr_level intr_disable (void);
+enum intr_level intr_get_level(void);
+enum intr_level intr_set_level(enum intr_level);
+enum intr_level intr_enable(void);
+enum intr_level intr_disable(void);
 
 /* Interrupt stack frame. */
 struct gp_registers {
@@ -46,12 +46,12 @@ struct intr_frame {
 	uint32_t __pad4;
 	/* Pushed by intrNN_stub in intr-stubs.S. */
 	uint64_t vec_no; /* Interrupt vector number. */
-/* Sometimes pushed by the CPU,
-   otherwise for consistency pushed as 0 by intrNN_stub.
-   The CPU puts it just under `eip', but we move it here. */
+	/* Sometimes pushed by the CPU,
+	   otherwise for consistency pushed as 0 by intrNN_stub.
+	   The CPU puts it just under `eip', but we move it here. */
 	uint64_t error_code;
-/* Pushed by the CPU.
-   These are the interrupted task's saved registers. */
+	/* Pushed by the CPU.
+	   These are the interrupted task's saved registers. */
 	uintptr_t rip;
 	uint16_t cs;
 	uint16_t __pad5;
@@ -63,16 +63,16 @@ struct intr_frame {
 	uint32_t __pad8;
 } __attribute__((packed));
 
-typedef void intr_handler_func (struct intr_frame *);
+typedef void intr_handler_func(struct intr_frame *);
 
-void intr_init (void);
-void intr_register_ext (uint8_t vec, intr_handler_func *, const char *name);
-void intr_register_int (uint8_t vec, int dpl, enum intr_level,
-                        intr_handler_func *, const char *name);
-bool intr_context (void);
-void intr_yield_on_return (void);
+void intr_init(void);
+void intr_register_ext(uint8_t vec, intr_handler_func *, const char *name);
+void intr_register_int(uint8_t vec, int dpl, enum intr_level,
+	intr_handler_func *, const char *name);
+bool intr_context(void);
+void intr_yield_on_return(void);
 
-void intr_dump_frame (const struct intr_frame *);
-const char *intr_name (uint8_t vec);
+void intr_dump_frame(const struct intr_frame *);
+const char *intr_name(uint8_t vec);
 
 #endif /* threads/interrupt.h */

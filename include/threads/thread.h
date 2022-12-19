@@ -79,12 +79,12 @@ typedef int tid_t;
  * the `magic' member of the running thread's `struct thread' is
  * set to THREAD_MAGIC.  Stack overflow will normally change this
  * value, triggering the assertion. */
-/* The `elem' member has a dual purpose.  It can be an element in
- * the run queue (thread.c), or it can be an element in a
- * semaphore wait list (synch.c).  It can be used these two ways
- * only because they are mutually exclusive: only a thread in the
- * ready state is on the run queue, whereas only a thread in the
- * blocked state is on a semaphore wait list. */
+ /* The `elem' member has a dual purpose.  It can be an element in
+  * the run queue (thread.c), or it can be an element in a
+  * semaphore wait list (synch.c).  It can be used these two ways
+  * only because they are mutually exclusive: only a thread in the
+  * ready state is on the run queue, whereas only a thread in the
+  * blocked state is on a semaphore wait list. */
 struct thread {
 	/* Owned by thread.c. */
 	tid_t tid;                          /* Thread identifier. */
@@ -109,38 +109,53 @@ struct thread {
 	unsigned magic;                     /* Detects stack overflow. */
 };
 
+
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
 
-void thread_init (void);
-void thread_start (void);
+void thread_init(void);
+void thread_start(void);
 
-void thread_tick (void);
-void thread_print_stats (void);
+void thread_tick(void);
+void thread_print_stats(void);
 
-typedef void thread_func (void *aux);
-tid_t thread_create (const char *name, int priority, thread_func *, void *);
+typedef void thread_func(void *aux);
+tid_t thread_create(const char *name, int priority, thread_func *, void *);
 
-void thread_block (void);
-void thread_unblock (struct thread *);
+void thread_block(void);
+void thread_unblock(struct thread *);
 
-struct thread *thread_current (void);
-tid_t thread_tid (void);
-const char *thread_name (void);
+struct thread *thread_current(void);
+tid_t thread_tid(void);
+const char *thread_name(void);
 
-void thread_exit (void) NO_RETURN;
-void thread_yield (void);
+void thread_exit(void) NO_RETURN;
+void thread_yield(void);
 
-int thread_get_priority (void);
-void thread_set_priority (int);
+int thread_get_priority(void);
+void thread_set_priority(int);
 
-int thread_get_nice (void);
-void thread_set_nice (int);
-int thread_get_recent_cpu (void);
-int thread_get_load_avg (void);
+int thread_get_nice(void);
+void thread_set_nice(int);
+int thread_get_recent_cpu(void);
+int thread_get_load_avg(void);
 
-void do_iret (struct intr_frame *tf);
+void do_iret(struct intr_frame *tf);
+
+/* Alarm */
+
+// // 추가 함수
+// void timer_sleep(int64_t ticks) /* 인자로 주어진 ticks 동안 스레드를 block */
+// void thread_sleep(int64_t ticks) /* Thread를 blocked 상태로 만들고 sleep queue에 삽입하여 대기 */
+// void thread_awake(int64_t ticks) /* Sleep queue에서 깨워야 할 thread를 찾아서 wake */
+// void update_next_tick_to_awake(int64_t ticks) /* Thread들이 가진 tick 값에서 최소 값을 저장 */
+// int64_t get_next_tick_to_awake(void) /* 최소 tick값을 반환 */
+
 
 #endif /* threads/thread.h */
+
+
+void sleep_tick(void);
+void thread_sleep(int64_t);

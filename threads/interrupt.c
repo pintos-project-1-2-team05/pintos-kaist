@@ -55,7 +55,7 @@ static struct gate idt[INTR_CNT];
 
 static struct desc_ptr idt_desc = {
 	.size = sizeof(idt) - 1,
-	.address = (uint64_t) idt
+	.address = (uint64_t)idt
 };
 
 
@@ -104,15 +104,15 @@ static bool in_external_intr;   /* Are we processing an external interrupt? */
 static bool yield_on_return;    /* Should we yield on interrupt return? */
 
 /* Programmable Interrupt Controller helpers. */
-static void pic_init (void);
-static void pic_end_of_interrupt (int irq);
+static void pic_init(void);
+static void pic_end_of_interrupt(int irq);
 
 /* Interrupt handlers. */
-void intr_handler (struct intr_frame *args);
+void intr_handler(struct intr_frame *args);
 
 /* Returns the current interrupt status. */
 enum intr_level
-intr_get_level (void) {
+	intr_get_level(void) {
 	uint64_t flags;
 
 	/* Push the flags register on the processor stack, then pop the
@@ -127,29 +127,29 @@ intr_get_level (void) {
 /* Enables or disables interrupts as specified by LEVEL and
    returns the previous interrupt status. */
 enum intr_level
-intr_set_level (enum intr_level level) {
-	return level == INTR_ON ? intr_enable () : intr_disable ();
+	intr_set_level(enum intr_level level) {
+	return level == INTR_ON ? intr_enable() : intr_disable();
 }
 
 /* Enables interrupts and returns the previous interrupt status. */
 enum intr_level
-intr_enable (void) {
-	enum intr_level old_level = intr_get_level ();
-	ASSERT (!intr_context ());
+	intr_enable(void) {
+	enum intr_level old_level = intr_get_level();
+	ASSERT(!intr_context());
 
 	/* Enable interrupts by setting the interrupt flag.
 
 	   See [IA32-v2b] "STI" and [IA32-v3a] 5.8.1 "Masking Maskable
 	   Hardware Interrupts". */
-	asm volatile ("sti");
+	asm volatile ("sti"); //set interrupt
 
 	return old_level;
 }
 
 /* Disables interrupts and returns the previous interrupt status. */
 enum intr_level
-intr_disable (void) {
-	enum intr_level old_level = intr_get_level ();
+	intr_disable(void) {
+	enum intr_level old_level = intr_get_level();
 
 	/* Disable interrupts by clearing the interrupt flag.
 	   See [IA32-v2b] "CLI" and [IA32-v3a] 5.8.1 "Masking Maskable
@@ -161,11 +161,11 @@ intr_disable (void) {
 
 /* Initializes the interrupt system. */
 void
-intr_init (void) {
+intr_init(void) {
 	int i;
 
 	/* Initialize interrupt controller. */
-	pic_init ();
+	pic_init();
 
 	/* Initialize IDT. */
 	for (i = 0; i < INTR_CNT; i++) {
@@ -175,7 +175,7 @@ intr_init (void) {
 
 #ifdef USERPROG
 	/* Load TSS. */
-	ltr (SEL_TSS);
+	ltr(SEL_TSS);
 #endif
 
 	/* Load IDT register. */
@@ -208,9 +208,9 @@ intr_init (void) {
    purposes.  The interrupt handler will be invoked with
    interrupt status set to LEVEL. */
 static void
-register_handler (uint8_t vec_no, int dpl, enum intr_level level,
-		intr_handler_func *handler, const char *name) {
-	ASSERT (intr_handlers[vec_no] == NULL);
+register_handler(uint8_t vec_no, int dpl, enum intr_level level,
+	intr_handler_func *handler, const char *name) {
+	ASSERT(intr_handlers[vec_no] == NULL);
 	if (level == INTR_ON) {
 		make_trap_gate(&idt[vec_no], intr_stubs[vec_no], dpl);
 	}
@@ -225,10 +225,10 @@ register_handler (uint8_t vec_no, int dpl, enum intr_level level,
    is named NAME for debugging purposes.  The handler will
    execute with interrupts disabled. */
 void
-intr_register_ext (uint8_t vec_no, intr_handler_func *handler,
-		const char *name) {
-	ASSERT (vec_no >= 0x20 && vec_no <= 0x2f);
-	register_handler (vec_no, 0, INTR_OFF, handler, name);
+intr_register_ext(uint8_t vec_no, intr_handler_func *handler,
+	const char *name) {
+	ASSERT(vec_no >= 0x20 && vec_no <= 0x2f);
+	register_handler(vec_no, 0, INTR_OFF, handler, name);
 }
 
 /* Registers internal interrupt VEC_NO to invoke HANDLER, which
@@ -245,17 +245,17 @@ intr_register_ext (uint8_t vec_no, intr_handler_func *handler,
    "Accessing Nonconforming Code Segments" for further
    discussion. */
 void
-intr_register_int (uint8_t vec_no, int dpl, enum intr_level level,
-		intr_handler_func *handler, const char *name)
+intr_register_int(uint8_t vec_no, int dpl, enum intr_level level,
+	intr_handler_func *handler, const char *name)
 {
-	ASSERT (vec_no < 0x20 || vec_no > 0x2f);
-	register_handler (vec_no, dpl, level, handler, name);
+	ASSERT(vec_no < 0x20 || vec_no > 0x2f);
+	register_handler(vec_no, dpl, level, handler, name);
 }
 
 /* Returns true during processing of an external interrupt
    and false at all other times. */
 bool
-intr_context (void) {
+intr_context(void) {
 	return in_external_intr;
 }
 
@@ -264,11 +264,11 @@ intr_context (void) {
    returning from the interrupt.  May not be called at any other
    time. */
 void
-intr_yield_on_return (void) {
-	ASSERT (intr_context ());
+intr_yield_on_return(void) {
+	ASSERT(intr_context());
 	yield_on_return = true;
 }
-
+
 /* 8259A Programmable Interrupt Controller. */
 
 /* Every PC has two 8259A Programmable Interrupt Controller (PIC)
@@ -284,43 +284,43 @@ intr_yield_on_return (void) {
    so that interrupts 0...15 are delivered to interrupt vectors
    32...47 (0x20...0x2f) instead. */
 
-/* Initializes the PICs.  Refer to [8259A] for details. */
+   /* Initializes the PICs.  Refer to [8259A] for details. */
 static void
-pic_init (void) {
+pic_init(void) {
 	/* Mask all interrupts on both PICs. */
-	outb (0x21, 0xff);
-	outb (0xa1, 0xff);
+	outb(0x21, 0xff);
+	outb(0xa1, 0xff);
 
 	/* Initialize master. */
-	outb (0x20, 0x11); /* ICW1: single mode, edge triggered, expect ICW4. */
-	outb (0x21, 0x20); /* ICW2: line IR0...7 -> irq 0x20...0x27. */
-	outb (0x21, 0x04); /* ICW3: slave PIC on line IR2. */
-	outb (0x21, 0x01); /* ICW4: 8086 mode, normal EOI, non-buffered. */
+	outb(0x20, 0x11); /* ICW1: single mode, edge triggered, expect ICW4. */
+	outb(0x21, 0x20); /* ICW2: line IR0...7 -> irq 0x20...0x27. */
+	outb(0x21, 0x04); /* ICW3: slave PIC on line IR2. */
+	outb(0x21, 0x01); /* ICW4: 8086 mode, normal EOI, non-buffered. */
 
 	/* Initialize slave. */
-	outb (0xa0, 0x11); /* ICW1: single mode, edge triggered, expect ICW4. */
-	outb (0xa1, 0x28); /* ICW2: line IR0...7 -> irq 0x28...0x2f. */
-	outb (0xa1, 0x02); /* ICW3: slave ID is 2. */
-	outb (0xa1, 0x01); /* ICW4: 8086 mode, normal EOI, non-buffered. */
+	outb(0xa0, 0x11); /* ICW1: single mode, edge triggered, expect ICW4. */
+	outb(0xa1, 0x28); /* ICW2: line IR0...7 -> irq 0x28...0x2f. */
+	outb(0xa1, 0x02); /* ICW3: slave ID is 2. */
+	outb(0xa1, 0x01); /* ICW4: 8086 mode, normal EOI, non-buffered. */
 
 	/* Unmask all interrupts. */
-	outb (0x21, 0x00);
-	outb (0xa1, 0x00);
+	outb(0x21, 0x00);
+	outb(0xa1, 0x00);
 }
 
 /* Sends an end-of-interrupt signal to the PIC for the given IRQ.
    If we don't acknowledge the IRQ, it will never be delivered to
    us again, so this is important.  */
 static void
-pic_end_of_interrupt (int irq) {
-	ASSERT (irq >= 0x20 && irq < 0x30);
+pic_end_of_interrupt(int irq) {
+	ASSERT(irq >= 0x20 && irq < 0x30);
 
 	/* Acknowledge master PIC. */
-	outb (0x20, 0x20);
+	outb(0x20, 0x20);
 
 	/* Acknowledge slave PIC if this is a slave interrupt. */
 	if (irq >= 0x28)
-		outb (0xa0, 0x20);
+		outb(0xa0, 0x20);
 }
 /* Interrupt handlers. */
 
@@ -329,7 +329,7 @@ pic_end_of_interrupt (int irq) {
    intr-stubs.S.  FRAME describes the interrupt and the
    interrupted thread's registers. */
 void
-intr_handler (struct intr_frame *frame) {
+intr_handler(struct intr_frame *frame) {
 	bool external;
 	intr_handler_func *handler;
 
@@ -339,8 +339,8 @@ intr_handler (struct intr_frame *frame) {
 	   An external interrupt handler cannot sleep. */
 	external = frame->vec_no >= 0x20 && frame->vec_no < 0x30;
 	if (external) {
-		ASSERT (intr_get_level () == INTR_OFF);
-		ASSERT (!intr_context ());
+		ASSERT(intr_get_level() == INTR_OFF);
+		ASSERT(!intr_context());
 
 		in_external_intr = true;
 		yield_on_return = false;
@@ -349,57 +349,58 @@ intr_handler (struct intr_frame *frame) {
 	/* Invoke the interrupt's handler. */
 	handler = intr_handlers[frame->vec_no];
 	if (handler != NULL)
-		handler (frame);
+		handler(frame);
 	else if (frame->vec_no == 0x27 || frame->vec_no == 0x2f) {
 		/* There is no handler, but this interrupt can trigger
 		   spuriously due to a hardware fault or hardware race
 		   condition.  Ignore it. */
-	} else {
+	}
+	else {
 		/* No handler and not spurious.  Invoke the unexpected
 		   interrupt handler. */
-		intr_dump_frame (frame);
-		PANIC ("Unexpected interrupt");
+		intr_dump_frame(frame);
+		PANIC("Unexpected interrupt");
 	}
 
 	/* Complete the processing of an external interrupt. */
 	if (external) {
-		ASSERT (intr_get_level () == INTR_OFF);
-		ASSERT (intr_context ());
+		ASSERT(intr_get_level() == INTR_OFF);
+		ASSERT(intr_context());
 
 		in_external_intr = false;
-		pic_end_of_interrupt (frame->vec_no);
+		pic_end_of_interrupt(frame->vec_no);
 
 		if (yield_on_return)
-			thread_yield ();
+			thread_yield();
 	}
 }
 
 /* Dumps interrupt frame F to the console, for debugging. */
 void
-intr_dump_frame (const struct intr_frame *f) {
+intr_dump_frame(const struct intr_frame *f) {
 	/* CR2 is the linear address of the last page fault.
 	   See [IA32-v2a] "MOV--Move to/from Control Registers" and
 	   [IA32-v3a] 5.14 "Interrupt 14--Page Fault Exception
 	   (#PF)". */
 	uint64_t cr2 = rcr2();
-	printf ("Interrupt %#04llx (%s) at rip=%llx\n",
-			f->vec_no, intr_names[f->vec_no], f->rip);
-	printf (" cr2=%016llx error=%16llx\n", cr2, f->error_code);
-	printf ("rax %016llx rbx %016llx rcx %016llx rdx %016llx\n",
-			f->R.rax, f->R.rbx, f->R.rcx, f->R.rdx);
-	printf ("rsp %016llx rbp %016llx rsi %016llx rdi %016llx\n",
-			f->rsp, f->R.rbp, f->R.rsi, f->R.rdi);
-	printf ("rip %016llx r8 %016llx  r9 %016llx r10 %016llx\n",
-			f->rip, f->R.r8, f->R.r9, f->R.r10);
-	printf ("r11 %016llx r12 %016llx r13 %016llx r14 %016llx\n",
-			f->R.r11, f->R.r12, f->R.r13, f->R.r14);
-	printf ("r15 %016llx rflags %08llx\n", f->R.r15, f->eflags);
-	printf ("es: %04x ds: %04x cs: %04x ss: %04x\n",
-			f->es, f->ds, f->cs, f->ss);
+	printf("Interrupt %#04llx (%s) at rip=%llx\n",
+		f->vec_no, intr_names[f->vec_no], f->rip);
+	printf(" cr2=%016llx error=%16llx\n", cr2, f->error_code);
+	printf("rax %016llx rbx %016llx rcx %016llx rdx %016llx\n",
+		f->R.rax, f->R.rbx, f->R.rcx, f->R.rdx);
+	printf("rsp %016llx rbp %016llx rsi %016llx rdi %016llx\n",
+		f->rsp, f->R.rbp, f->R.rsi, f->R.rdi);
+	printf("rip %016llx r8 %016llx  r9 %016llx r10 %016llx\n",
+		f->rip, f->R.r8, f->R.r9, f->R.r10);
+	printf("r11 %016llx r12 %016llx r13 %016llx r14 %016llx\n",
+		f->R.r11, f->R.r12, f->R.r13, f->R.r14);
+	printf("r15 %016llx rflags %08llx\n", f->R.r15, f->eflags);
+	printf("es: %04x ds: %04x cs: %04x ss: %04x\n",
+		f->es, f->ds, f->cs, f->ss);
 }
 
 /* Returns the name of interrupt VEC. */
 const char *
-intr_name (uint8_t vec) {
+intr_name(uint8_t vec) {
 	return intr_names[vec];
 }
