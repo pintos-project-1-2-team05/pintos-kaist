@@ -67,6 +67,8 @@ static void schedule (void);
 static tid_t allocate_tid (void);
 void thread_wakeup (void);
 void thread_sleep (int64_t ticks);
+bool cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+void test_max_priority (void);
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -213,6 +215,9 @@ thread_create (const char *name, int priority,
 	/* Add to run queue. */
 	thread_unblock (t);
 
+	// 새로 만든 쓰레드의 우선순위가 현재 쓰레드의 우선순위보다 높으면 선점
+	test_max_priority();
+
 	return tid;
 }
 
@@ -246,7 +251,10 @@ thread_unblock (struct thread *t) {
 
 	old_level = intr_disable ();
 	ASSERT (t->status == THREAD_BLOCKED);
-	list_push_back (&ready_list, &t->elem);
+
+	// ready_list 리스트 넣을 때 순서에 맞게
+	list_insert_ordered(&ready_list, &t->elem, cmp_priority, NULL);
+
 	t->status = THREAD_READY;
 	intr_set_level (old_level);
 }
@@ -308,8 +316,10 @@ thread_yield (void) {
 	ASSERT (!intr_context ());
 
 	old_level = intr_disable ();
-	if (curr != idle_thread)
-		list_push_back (&ready_list, &curr->elem);
+	if (curr != idle_thread){
+		// ready_list 리스트 넣을 때 순서에 맞게
+		list_insert_ordered(&ready_list, &curr->elem, cmp_priority, NULL);
+	}
 	do_schedule (THREAD_READY);
 	intr_set_level (old_level);
 }
@@ -318,6 +328,8 @@ thread_yield (void) {
 void
 thread_set_priority (int new_priority) {
 	thread_current ()->priority = new_priority;
+	// 새로 지정한 우선순위가 현재 쓰레드 우선순위보다 높으면 선점
+	test_max_priority();
 }
 
 /* Returns the current thread's priority. */
@@ -596,7 +608,7 @@ allocate_tid (void) {
 }
 
 void
-thread_sleep(int64_t ticks){
+thread_sleep (int64_t ticks){
 	struct thread *curr = thread_current();
 	enum intr_level old_level = intr_disable();
 
@@ -610,7 +622,7 @@ thread_sleep(int64_t ticks){
 }
 
 void
-thread_wakeup(){
+thread_wakeup (void){
 
 	struct list_elem *e = list_begin(&sleep_list);
 	
@@ -619,10 +631,33 @@ thread_wakeup(){
 		
 	    if (--(t->wakeup_tick) <= 0){
 			e = list_remove(e);
-			list_push_back(&ready_list, &t->elem);
+			thread_unblock(t);
+			// if (thread_get_priority() < (list_entry(list_begin(&ready_list), struct thread, elem)->priority)){
+			// 	intr_yield_on_return();
+			// }
 		}
 		else{
 			e = list_next(e);
 		}
+	}
+}
+
+// 우선순위 정렬을 위한 함수
+bool 
+cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED){
+	int priority_a = list_entry(a, struct thread, elem)->priority;
+	int priority_b = list_entry(b, struct thread, elem)->priority;
+	
+	return priority_a>priority_b;
+}
+
+// 현재 돌고있는 우선순위와 ready_list의 가장앞(=우선순위 가장 높음) 비교해서 높으면 선점.
+void 
+test_max_priority (void){
+	int curr_priority = thread_get_priority();
+	int ready_highest_priority = list_entry(list_begin(&ready_list), struct thread, elem)->priority;
+
+	if (curr_priority < ready_highest_priority){
+		thread_yield();
 	}
 }

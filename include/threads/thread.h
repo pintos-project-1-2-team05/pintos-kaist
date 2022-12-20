@@ -145,6 +145,11 @@ int thread_get_load_avg (void);
 void do_iret (struct intr_frame *tf);
 
 /* Alarm */
+void thread_wakeup(void);
 void thread_sleep(int64_t ticks);
+
+/* Priority */
+bool cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+void test_max_priority(void);
 
 #endif /* threads/thread.h */
