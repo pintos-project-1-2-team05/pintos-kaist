@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -91,9 +92,11 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-
+	int base_priority;					/* Represent the priority attribute of the thread itself */
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+	struct list lockhold_list;
+	struct lock * waiting_lock;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -107,6 +110,7 @@ struct thread {
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
+
 };
 
 
@@ -144,18 +148,6 @@ int thread_get_load_avg(void);
 
 void do_iret(struct intr_frame *tf);
 
-/* Alarm */
-
-// // 추가 함수
-// void timer_sleep(int64_t ticks) /* 인자로 주어진 ticks 동안 스레드를 block */
-// void thread_sleep(int64_t ticks) /* Thread를 blocked 상태로 만들고 sleep queue에 삽입하여 대기 */
-// void thread_awake(int64_t ticks) /* Sleep queue에서 깨워야 할 thread를 찾아서 wake */
-// void update_next_tick_to_awake(int64_t ticks) /* Thread들이 가진 tick 값에서 최소 값을 저장 */
-// int64_t get_next_tick_to_awake(void) /* 최소 tick값을 반환 */
-
 
 #endif /* threads/thread.h */
 
-
-void sleep_tick(void);
-void thread_sleep(int64_t);

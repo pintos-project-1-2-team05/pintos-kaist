@@ -2,6 +2,7 @@
 #include <debug.h>
 #include <inttypes.h>
 #include <round.h>
+#include "threads/malloc.h"
 #include <stdio.h>
 #include "threads/interrupt.h"
 #include "threads/io.h"
@@ -14,11 +15,18 @@
 #error 8254 timer requires TIMER_FREQ >= 19
 #endif
 #if TIMER_FREQ > 1000
-#error TIMER_FREQ <= 1000 recommended
 #endif
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
+/** Record sleeping threads. */
+struct sleep_thread_entry
+{
+	struct thread *t;
+	int64_t sleep_ticks;
+	struct list_elem elem;
+};
+static struct list sleep_list;
 
 /* Number of loops per timer tick.
    Initialized by timer_calibrate(). */
@@ -44,6 +52,7 @@ timer_init(void) {
 	outb(0x40, count >> 8);
 
 	intr_register_ext(0x20, timer_interrupt, "8254 Timer");
+	list_init(&sleep_list);
 
 }
 
@@ -91,19 +100,48 @@ timer_elapsed(int64_t then) {
 
 /* Suspends execution for approximately TICKS timer ticks. */
 void
-timer_sleep(int64_t ticks) {
-	/*old code*/
-		// int64_t start = timer_ticks();
-
-		// ASSERT(intr_get_level() == INTR_ON); // timer_ticks를 통해 start값을 가져올 때, 인터럽트를 잠시 껐다가 다시 킴. 그래서  intr_on이 확실한가를 체크하는 라인
-		// while (timer_elapsed(start) < ticks) // 받아온 ticks보다 아직 시간이 안지났으면 cpu 계속 양보
-		// 	thread_yield();
+timer_sleep(int64_t ticks)
+{
+	ASSERT(intr_get_level() == INTR_ON);
 
 	if (ticks < 0) {
 		return;
 	}
 
-	thread_sleep(ticks);
+	enum intr_level old_level = intr_disable();
+
+	struct sleep_thread_entry *entry = malloc(sizeof(struct sleep_thread_entry));
+	entry->t = thread_current();
+	entry->sleep_ticks = ticks;
+	list_push_back(&sleep_list, &entry->elem);
+	thread_block();
+
+	intr_set_level(old_level);
+}
+
+/* Tick the sleep list. Threads whose sleep tick becoms zero will be unblocked
+This process shouldn't be interrupted
+-> timer_interrupt 에서 disabled & run sleep_tick
+The last part of the Core Guide / Interrupt Handling document states "The handler will run with interrupts disabled", so there is no need to manually turn off interrupts here
+*/
+
+static void
+sleep_tick(void)
+{
+	struct list_elem *e = list_begin(&sleep_list);
+	while (e != list_end(&sleep_list)) {
+		struct sleep_thread_entry *entry = list_entry(e, struct sleep_thread_entry, elem);
+		if (--(entry->sleep_ticks) <= 0) {
+			e = list_remove(e);
+			thread_unblock(entry->t);
+			if (entry->t->priority > thread_current()->priority) {
+				intr_yield_on_return();
+			}
+		}
+		else {
+			e = list_next(e);
+		}
+	}
 }
 
 /* Suspends execution for approximately MS milliseconds. */
@@ -134,8 +172,8 @@ timer_print_stats(void) {
 static void
 timer_interrupt(struct intr_frame *args UNUSED) {
 	ticks++;
-	sleep_tick();
 	thread_tick();
+	sleep_tick();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

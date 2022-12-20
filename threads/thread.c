@@ -8,8 +8,10 @@
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
+#include "threads/malloc.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #include "intrinsic.h"
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -27,13 +29,8 @@
 	  /* List of processes in THREAD_READY state, that is, processes
 		 that are ready to run but not actually running. */
 static struct list ready_list;
-/* Record sleeping threads */
-struct sleep_thread_entry {
-	struct thread *t;
-	int64_t sleep_ticks;
-	struct list_elem elem;
-};
-static struct list sleep_list;
+
+static struct list wait_list;
 
 
 /* Idle thread. */
@@ -70,6 +67,14 @@ static void init_thread(struct thread *, const char *name, int priority);
 static void do_schedule(int status);
 static void schedule(void);
 static tid_t allocate_tid(void);
+
+// for list_insert_ordered
+
+static bool
+thread_priority_greater(const struct list_elem *lhs, const struct list_elem *rhs, void *aux UNUSED) {
+	return list_entry(lhs, struct thread, elem)->priority > list_entry(rhs, struct thread, elem)->priority;
+} //left, right
+
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -116,7 +121,7 @@ thread_init(void) {
 	/* Init the globla thread context */
 	lock_init(&tid_lock);
 	list_init(&ready_list);
-	list_init(&sleep_list);
+	list_init(&wait_list);
 
 	list_init(&destruction_req);
 
@@ -140,7 +145,7 @@ thread_start(void) {
 	intr_enable();
 
 	/* Wait for the idle thread to initialize idle_thread. */
-	sema_down(&idle_started);
+	sema_down(&idle_started); //이제 idle thread에 아무도 접근 못함?
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -202,7 +207,6 @@ thread_create(const char *name, int priority,
 	/* Initialize thread. */
 	init_thread(t, name, priority);
 	tid = t->tid = allocate_tid();
-
 	/* Call the kernel_thread if it scheduled.
 	 * Note) rdi is 1st argument, and rsi is 2nd argument. */
 	t->tf.rip = (uintptr_t)kernel_thread;
@@ -213,9 +217,11 @@ thread_create(const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
-
 	/* Add to run queue. */
 	thread_unblock(t);
+	//새로 생성된 thread의 priority가 현재 thread의 priority보다 높은 경우 현재 것을 양보함
+	if (priority > thread_current()->priority)
+		thread_yield();
 
 	return tid;
 }
@@ -250,7 +256,7 @@ thread_unblock(struct thread *t) {
 
 	old_level = intr_disable();
 	ASSERT(t->status == THREAD_BLOCKED);
-	list_push_back(&ready_list, &t->elem);
+	list_insert_ordered(&ready_list, &t->elem, thread_priority_greater, NULL);
 	t->status = THREAD_READY;
 	intr_set_level(old_level);
 }
@@ -313,7 +319,7 @@ thread_yield(void) {
 
 	old_level = intr_disable(); // 
 	if (curr != idle_thread)
-		list_push_back(&ready_list, &curr->elem);
+		list_insert_ordered(&ready_list, &curr->elem, thread_priority_greater, NULL);
 	do_schedule(THREAD_READY);
 	intr_set_level(old_level);
 }
@@ -321,7 +327,18 @@ thread_yield(void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority(int new_priority) {
-	thread_current()->priority = new_priority;
+	struct thread *t_cur = thread_current();
+	int old_priority = t_cur->priority;
+	t_cur->base_priority = new_priority;
+	// if current thread has donated priority that is higher than new priority, then priority shouldn't change
+	if (list_empty(&t_cur->lockhold_list) || new_priority > t_cur->priority) {
+		t_cur->priority = new_priority;
+	}
+	if (t_cur->priority < old_priority) { // 양보하고 ready_list에 넣어지고, sort하도록
+		thread_yield();
+		// list_sort(&ready_list, thread_priority_greater, NULL); //yield에서 ordered로 넣으니까 안해도 될듯?
+	}
+
 }
 
 /* Returns the current thread's priority. */
@@ -376,7 +393,7 @@ idle(void *idle_started_ UNUSED) {
 	struct semaphore *idle_started = idle_started_;
 
 	idle_thread = thread_current();
-	sema_up(idle_started);
+	sema_up(idle_started); //0이었는데 1로 만듦
 
 	for (;;) {
 		/* Let someone else run. */
@@ -453,6 +470,10 @@ init_thread(struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t)t + PGSIZE - sizeof(void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+
+	t->base_priority = t->priority = priority;
+	list_init(&t->lockhold_list);
+	t->waiting_lock = NULL;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -637,48 +658,3 @@ allocate_tid(void) {
 
 /* ________________ FROM HERE NEW FUNCTIONS ________________ */
 
-
-/* Tick the sleep list. Threads whose sleep tick becoms zero will be unblocked
-This process shouldn't be interrupted
--> timer_interrupt 에서 disabled & run sleep_tick
-The last part of the Core Guide / Interrupt Handling document states "The handler will run with interrupts disabled", so there is no need to manually turn off interrupts here
-*/
-void
-sleep_tick(void)
-{
-	struct list_elem *e = list_begin(&sleep_list);
-	while (e != list_end(&sleep_list)) {
-		// list_entry를 통해 sleep_list에 저장되어 있던 구조체 받아옴
-		struct sleep_thread_entry *entry = list_entry(e, struct sleep_thread_entry, elem);
-		if (--(entry->sleep_ticks) <= 0) { //먼저 줄여서 비교, 탈출해야하는거라면 탈출
-			e = list_remove(e); // e->next 반환한걸 e로 설정하고, 현재e였던 entry의 t를 unblock
-			thread_unblock(entry->t); // unblock thread t, this func will run with interrupts disabled, so there is no need to manually turn off interrupts here
-			// list_push_back(&ready_list, &entry->elem);
-		}
-		else {
-			e = list_next(e);
-		}
-
-	}
-
-}
-
-/* make current thread sleep */
-void thread_sleep(int64_t ticks) {
-	enum intr_level old_level = intr_disable();
-
-	struct sleep_thread_entry *entry = (struct sleep_thread_entry *)malloc(sizeof(struct sleep_thread_entry));
-
-	entry->t = thread_current();
-	entry->sleep_ticks = ticks;
-	// entry 구조체의 값 설정 후 sleep_list에 추가
-	list_push_back(&sleep_list, &entry->elem);
-	thread_block();
-	free(entry);
-
-	intr_set_level(old_level);
-
-	// ticks<0 -> 커널패닉하지않고 그냥 리턴을 위해 ASSERT 하지 않음
-	// ticks == 0 -> yield의 의미를 갖기 때문에 yield 해줘야함
-	// thread_block needs to be called when the interrupt is disabled
-}
