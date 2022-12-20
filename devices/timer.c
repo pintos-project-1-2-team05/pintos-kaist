@@ -128,12 +128,15 @@ The last part of the Core Guide / Interrupt Handling document states "The handle
 static void
 sleep_tick(void)
 {
+
+
 	struct list_elem *e = list_begin(&sleep_list);
 	while (e != list_end(&sleep_list)) {
 		struct sleep_thread_entry *entry = list_entry(e, struct sleep_thread_entry, elem);
 		if (--(entry->sleep_ticks) <= 0) {
 			e = list_remove(e);
 			thread_unblock(entry->t);
+
 			if (entry->t->priority > thread_current()->priority) {
 				intr_yield_on_return();
 			}
@@ -142,6 +145,7 @@ sleep_tick(void)
 			e = list_next(e);
 		}
 	}
+
 }
 
 /* Suspends execution for approximately MS milliseconds. */
