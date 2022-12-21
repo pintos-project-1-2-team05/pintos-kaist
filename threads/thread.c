@@ -69,6 +69,9 @@ void thread_wakeup (void);
 void thread_sleep (int64_t ticks);
 bool cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 void test_max_priority (void);
+void donate_priority(void);
+void remove_with_lock(struct lock *lock);
+void refresh_priority(void);
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -327,7 +330,14 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;
+	struct thread *curr = thread_current();
+	curr->old_priority = new_priority;
+
+	if (!list_empty(&curr->lock_hold_list) && new_priority <= curr->priority){
+		return;
+	}
+
+	curr->priority = new_priority;
 	// 새로 지정한 우선순위가 현재 쓰레드 우선순위보다 높으면 선점
 	test_max_priority();
 }
@@ -427,6 +437,11 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
+
+	/* 초기화 추가 */
+	list_init(&t->lock_hold_list);
+	t->old_priority = priority;
+	t->wait_on_lock = NULL;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
@@ -632,9 +647,9 @@ thread_wakeup (void){
 	    if (--(t->wakeup_tick) <= 0){
 			e = list_remove(e);
 			thread_unblock(t);
-			// if (thread_get_priority() < (list_entry(list_begin(&ready_list), struct thread, elem)->priority)){
-			// 	intr_yield_on_return();
-			// }
+			if (thread_get_priority() < (list_entry(list_begin(&ready_list), struct thread, elem)->priority)){
+				intr_yield_on_return();
+			}
 		}
 		else{
 			e = list_next(e);
