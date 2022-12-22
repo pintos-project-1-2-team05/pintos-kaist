@@ -92,9 +92,12 @@ struct thread {
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
 	int priority;                       /* Priority. */
-	int base_priority;					/* Represent the priority attribute of the thread itself */
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+
+
+	/* below three are for priority donation */
+	int base_priority;					/* Represent the priority attribute of the thread itself */
 	struct list lockhold_list;
 	struct lock * waiting_lock;
 

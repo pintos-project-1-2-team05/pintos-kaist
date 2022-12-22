@@ -58,7 +58,6 @@ static struct desc_ptr idt_desc = {
 	.address = (uint64_t)idt
 };
 
-
 #define make_gate(g, function, d, t) \
 { \
 	ASSERT ((function) != NULL); \

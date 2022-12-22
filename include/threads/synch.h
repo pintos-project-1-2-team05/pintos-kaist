@@ -18,7 +18,7 @@ void sema_self_test(void);
 
 /* Lock. */
 struct lock {
-	struct thread *holder;      /* Thread holding lock (for debugging). */
+	struct thread *holder;      /* Thread holding lock (for debugging). OSTEP 28 -> we could save info about which thread has lock */
 	struct semaphore semaphore; /* Binary semaphore controlling access. */
 	int max_priority;
 	struct list_elem elem;

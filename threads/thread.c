@@ -145,7 +145,7 @@ thread_start(void) {
 	intr_enable();
 
 	/* Wait for the idle thread to initialize idle_thread. */
-	sema_down(&idle_started); //이제 idle thread에 아무도 접근 못함?
+	sema_down(&idle_started); //이제 idle thread에 아무도 접근 못함
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -182,11 +182,11 @@ thread_print_stats(void) {
    for the new thread, or TID_ERROR if creation fails.
 
    If thread_start() has been called, then the new thread may be
-   scheduled before thread_create() returns.  It could even exit
-   before thread_create() returns.  Contrariwise, the original
-   thread may run for any amount of time before the new thread is
-   scheduled.  Use a semaphore or some other form of
-   synchronization if you need to ensure ordering.
+   scheduled before thread_create() returns.  It(thread_start) could even exit
+   before thread_create() returns.
+   Contrariwise, the original thread may run for any amount of time
+   before the new thread is scheduled.
+   Use a semaphore or some other form of synchronization if you need to ensure ordering.
 
    The code provided sets the new thread's `priority' member to
    PRIORITY, but no actual priority scheduling is implemented.
@@ -244,10 +244,9 @@ thread_block(void) {
    This is an error if T is not blocked.  (Use thread_yield() to
    make the running thread ready.)
 
-   This function does not preempt the running thread.  This can
-   be important: if the caller had disabled interrupts itself,
-   it may expect that it can atomically unblock a thread and
-   update other data. */
+   This function does not preempt the running thread.
+   This can be important: if the caller had disabled interrupts itself,
+   it may expect that it can atomically unblock a thread and update other data. */
 void
 thread_unblock(struct thread *t) {
 	enum intr_level old_level;
@@ -328,17 +327,13 @@ thread_yield(void) {
 void
 thread_set_priority(int new_priority) {
 	struct thread *t_cur = thread_current();
-	int old_priority = t_cur->priority;
 	t_cur->base_priority = new_priority;
-	// if current thread has donated priority that is higher than new priority, then priority shouldn't change
-	if (list_empty(&t_cur->lockhold_list) || new_priority > t_cur->priority) {
-		t_cur->priority = new_priority;
+	// if current thread has donated priority that is higher than new priority, then priority should not change
+	if (!list_empty(&t_cur->lockhold_list) && new_priority <= t_cur->priority) {
+		return;
 	}
-	if (t_cur->priority < old_priority) { // 양보하고 ready_list에 넣어지고, sort하도록
-		thread_yield();
-		// list_sort(&ready_list, thread_priority_greater, NULL); //yield에서 ordered로 넣으니까 안해도 될듯?
-	}
-
+	t_cur->priority = new_priority;
+	thread_yield();
 }
 
 /* Returns the current thread's priority. */
@@ -377,17 +372,17 @@ thread_get_recent_cpu(void) {
 
 /* thread_start에서 thread_create()의 매개변수로 idle 함수가 들어감
   즉, idle thread는 시작과 동시에 켜지고 ready_list에 들어갔지만
-  나타나지는 않으며, 계속해서 thread_block을 해주는 것임
-*/
-/* Idle thread.  Executes when no other thread is ready to run.
+  나타나지는 않으며, 계속해서 thread_block을 해주는 것임 */
 
-   The idle thread is initially put on the ready list by
-   thread_start().  It will be scheduled once initially, at which
-   point it initializes idle_thread, "up"s the semaphore passed
-   to it to enable thread_start() to continue, and immediately
-   blocks.  After that, the idle thread never appears in the
-   ready list.  It is returned by next_thread_to_run() as a
-   special case when the ready list is empty. */
+  /* Idle thread.  Executes when no other thread is ready to run.
+
+	 The idle thread is initially put on the ready list by
+	 thread_start().  It will be scheduled once initially, at which
+	 point it initializes idle_thread, "up"s the semaphore passed
+	 to it to enable thread_start() to continue, and immediately
+	 blocks.  After that, the idle thread never appears in the
+	 ready list.  It is returned by next_thread_to_run() as a
+	 special case when the ready list is empty. */
 static void
 idle(void *idle_started_ UNUSED) {
 	struct semaphore *idle_started = idle_started_;
@@ -401,47 +396,48 @@ idle(void *idle_started_ UNUSED) {
 		thread_block();
 
 		/* Re-enable interrupts(sti) and wait for the next one (hlt)
-	(interrupt shadow property of the sti instruction)
+		(interrupt shadow property of the sti instruction)
 		   The `sti' instruction disables interrupts
-		   (sti가 아예 disables interrupts하는녀석이 아니고, 다음 명령인 hlt가 완료되기 전까지 일단 정지한단 뜻)
+		(sti가 아예 disables interrupts하는녀석이 아니고, 다음 명령인 hlt가 완료되기 전까지 일단 정지한단 뜻)
 		   until the completion of the next instruction(hlt),
 		   so these two instructions are executed atomically.
+		sti, hlt 명령이 따로따로 실행 됨
 
 		This atomicity is important; otherwise, an interrupt could be handled
 		between re-enabling interrupts(sti) and waiting for the next one to occur(hlt),
 		wasting as much as one clock tick worth of time.
-		//   HLT 명령은 CPU가 작동할 필요가 없을 때는 멈췄다가 필요할 때만 작동하게 하게 하는 기능을 한다. https://pat.im/53 참조
-		   See [IA32-v2a] "HLT", [IA32-v2b] "STI", and [IA32-v3a]
-		   7.11.1 "HLT Instruction". */
-		   // sti, hlt 명령이 따로따로 실행 됨
-	/*In most cases, STI sets the interrupt flag (IF) in the EFLAGS register.
-	This allows the processor to respond to maskable hardware interrupts.
-	https://www.felixcloutier.com/x86/hlt
-
-	It's usually used in OS code, and executed when the OS has no work to
-dispatch. For example, it's common in the middle of the OS's idle
-loop. These days the main thing this does is drop the CPU into a
-power saving state. As someone else mentioned, it's useful for
-virtual machines as well, where it allows the hypervisor to stop
-wasting resources emulating the guest's idle loop.
-
-https://lkml.iu.edu/hypermail/linux/kernel/1009.2/01406.html
-Atomically enable interrupts and put the CPU to sleep
-https://docs.rs/x86_64/0.9.6/x86_64/instructions/interrupts/fn.enable_interrupts_and_hlt.html
-
-http://egloos.zum.com/agbottlep/v/147882
-event가 발생하면 깨어나게 된다.
-
- thread_tick (int64_t tick) : Called by the timer interrupt handler at each timer tick.
-   Thus, this function runs in an external interrupt context.
-   The parameter 'tick' is the current tick count held by
-   the timer device.
-
- timer_interrupt
-
-
-	*/
+		*/
 		asm volatile ("sti; hlt" : : : "memory");
+
+		/* HLT 명령은 CPU가 작동할 필요가 없을 때는 멈췄다가 필요할 때만 작동하게 하게 하는 기능을 한다. https://pat.im/53 참조
+		   See [IA32-v2a] "HLT", [IA32-v2b] "STI", and [IA32-v3a]
+		   7.11.1 "HLT Instruction".
+
+			In most cases, STI sets the interrupt flag (IF) in the EFLAGS register.
+			This allows the processor to respond to maskable hardware interrupts.
+			https://www.felixcloutier.com/x86/hlt
+
+			It's usually used in OS code, and executed when the OS has no work to
+			dispatch. For example, it's common in the middle of the OS's idle
+			loop. These days the main thing this does is drop the CPU into a
+			power saving state. As someone else mentioned, it's useful for
+			virtual machines as well, where it allows the hypervisor to stop
+			wasting resources emulating the guest's idle loop.
+
+			https://lkml.iu.edu/hypermail/linux/kernel/1009.2/01406.html
+			Atomically enable interrupts and put the CPU to sleep
+			https://docs.rs/x86_64/0.9.6/x86_64/instructions/interrupts/fn.enable_interrupts_and_hlt.html
+
+			http://egloos.zum.com/agbottlep/v/147882
+			event가 발생하면 깨어나게 된다.
+
+			thread_tick (int64_t tick) : Called by the timer interrupt handler at each timer tick.
+			Thus, this function runs in an external interrupt context.
+			The parameter 'tick' is the current tick count held by
+			the timer device.
+		*/
+
+
 	}
 }
 
@@ -471,7 +467,8 @@ init_thread(struct thread *t, const char *name, int priority) {
 	t->priority = priority;
 	t->magic = THREAD_MAGIC;
 
-	t->base_priority = t->priority = priority;
+	/* init data structure for priority donation */
+	t->base_priority = priority;
 	list_init(&t->lockhold_list);
 	t->waiting_lock = NULL;
 }
@@ -528,7 +525,7 @@ do_iret(struct intr_frame *tf) {
    complete.  In practice that means that printf()s should be
    added at the end of the function. */
 static void
-thread_launch(struct thread *th) {
+thread_launch(struct thread *th) { // Context Switching을 여기서 
 	uint64_t tf_cur = (uint64_t)&running_thread()->tf;
 	uint64_t tf = (uint64_t)&th->tf;
 	ASSERT(intr_get_level() == INTR_OFF);
@@ -597,7 +594,7 @@ do_schedule(int status) {
 	while (!list_empty(&destruction_req)) { //끝난 thread 없애는 과정
 		struct thread *victim =
 			list_entry(list_pop_front(&destruction_req), struct thread, elem);
-		palloc_free_page(victim); // victim으로 뽑아서 destruct함
+		palloc_free_page(victim); // victim으로 뽑아서 destruct함  
 	}
 	thread_current()->status = status;
 	schedule();
@@ -630,14 +627,14 @@ schedule(void) {
 		   currently used by the stack.
 		   The real destruction logic will be called at the beginning of the
 		   schedule(). */
-		if (curr && curr->status == THREAD_DYING && curr != initial_thread) {
+		if (curr && curr->status == THREAD_DYING && curr != initial_thread) { // curr가 dying 상태인 경우
 			ASSERT(curr != next);
 			list_push_back(&destruction_req, &curr->elem);
 		}
 
 		/* Before switching the thread, we first save the information
 		 * of current running. */
-		thread_launch(next);
+		thread_launch(next); //Context Switching
 	}
 }
 
@@ -657,4 +654,3 @@ allocate_tid(void) {
 
 
 /* ________________ FROM HERE NEW FUNCTIONS ________________ */
-
