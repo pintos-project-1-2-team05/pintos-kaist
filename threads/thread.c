@@ -32,6 +32,8 @@ static struct list ready_list;
 
 static struct list wait_list;
 
+// for project2
+static bool schedule_started;
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -146,6 +148,8 @@ thread_start(void) {
 
 	/* Wait for the idle thread to initialize idle_thread. */
 	sema_down(&idle_started); //이제 idle thread에 아무도 접근 못함
+
+	schedule_started = true;
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -311,6 +315,10 @@ thread_exit(void) {
    may be scheduled again immediately at the scheduler's whim. */
 void
 thread_yield(void) {
+
+	if (!schedule_started) {
+		return;
+	}
 	struct thread *curr = thread_current();
 	enum intr_level old_level;
 
@@ -327,12 +335,18 @@ thread_yield(void) {
 void
 thread_set_priority(int new_priority) {
 	struct thread *t_cur = thread_current();
+
+
+	enum intr_level old_level;
+	old_level = intr_disable(); // 
 	t_cur->base_priority = new_priority;
 	// if current thread has donated priority that is higher than new priority, then priority should not change
 	if (!list_empty(&t_cur->lockhold_list) && new_priority <= t_cur->priority) {
 		return;
 	}
 	t_cur->priority = new_priority;
+	intr_set_level(old_level);
+
 	thread_yield();
 }
 
