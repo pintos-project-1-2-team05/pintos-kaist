@@ -69,9 +69,7 @@ void thread_wakeup (void);
 void thread_sleep (int64_t ticks);
 bool cmp_priority (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 void test_max_priority (void);
-void donate_priority(void);
-void remove_with_lock(struct lock *lock);
-void refresh_priority(void);
+static bool schedule_started;
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -142,6 +140,7 @@ thread_start (void) {
 
 	/* Wait for the idle thread to initialize idle_thread. */
 	sema_down (&idle_started);
+	schedule_started = true;
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -313,6 +312,9 @@ thread_exit (void) {
    may be scheduled again immediately at the scheduler's whim. */
 void
 thread_yield (void) {
+	if (!schedule_started){
+		return;
+	}
 	struct thread *curr = thread_current ();
 	enum intr_level old_level;
 

@@ -184,6 +184,8 @@ process_exec (void *f_name) {
 	if (!success)
 		return -1;
 
+	hex_dump(_if.rsp, _if.rsp, USER_STACK-_if.rsp,true);
+	
 	/* Start switched process. */
 	do_iret (&_if);
 	NOT_REACHED ();
@@ -204,6 +206,7 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	while(1){}
 	return -1;
 }
 
@@ -329,6 +332,11 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
+	char *arg;
+	char *save_ptr; 
+
+	arg = strtok_r(file_name, " ", &save_ptr);
+
 	/* Allocate and activate page directory. */
 	t->pml4 = pml4_create ();
 	if (t->pml4 == NULL)
@@ -336,9 +344,9 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
-	file = filesys_open (file_name);
+	file = filesys_open (arg);
 	if (file == NULL) {
-		printf ("load: %s: open failed\n", file_name);
+		printf ("load: %s: open failed\n", arg);
 		goto done;
 	}
 
@@ -350,7 +358,7 @@ load (const char *file_name, struct intr_frame *if_) {
 			|| ehdr.e_version != 1
 			|| ehdr.e_phentsize != sizeof (struct Phdr)
 			|| ehdr.e_phnum > 1024) {
-		printf ("load: %s: error loading executable\n", file_name);
+		printf ("load: %s: error loading executable\n", arg);
 		goto done;
 	}
 
@@ -417,6 +425,38 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 
+	int argc = 0;
+	char *argv[128];
+
+	for (arg; arg != NULL; arg = strtok_r (NULL, " ", &save_ptr)){
+		int arglen = strlen(arg)+1;
+
+		if_->rsp -= arglen;
+		memcpy(if_->rsp,arg,arglen);
+		argv[argc++] = if_->rsp;
+	}
+
+	if(if_->rsp % 8){
+		memset(if_->rsp - if_->rsp % 8, 0, if_->rsp % 8);
+		if_->rsp -= if_->rsp % 8;
+	}	
+
+	if_->rsp -= 8;
+	memset(if_->rsp, 0, 8);
+
+	if_->R.rdi = argc;
+
+	for (--argc; argc >= 0; argc--){
+		if_->rsp -= 8;
+		memcpy(if_->rsp, &argv[argc], 8); // issue
+	}
+
+	if_->R.rsi = if_->rsp;
+
+	if_->rsp -= 8;
+	memset(if_->rsp, 0, 8);
+
+	
 	success = true;
 
 done:
