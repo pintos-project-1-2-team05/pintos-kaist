@@ -95,16 +95,21 @@ struct thread {
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
 
-
 	/* below three are for priority donation */
 	int base_priority;					/* Represent the priority attribute of the thread itself */
 	struct list lockhold_list;
 	struct lock * waiting_lock;
 
-#ifdef USERPROG
+	// #ifdef USERPROG
+
+	int exit_status;
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
-#endif
+	/* file descriptor */
+	struct file **fdt;
+	struct file *executing_file;
+
+	// #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;

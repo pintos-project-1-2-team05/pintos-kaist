@@ -126,7 +126,6 @@ sema_up(struct semaphore *sema)
 		thread_unblock(t);
 	}
 	sema->value++;
-	intr_set_level(old_level);
 
 	if (intr_context()) {
 		intr_yield_on_return();
@@ -134,6 +133,8 @@ sema_up(struct semaphore *sema)
 	else {
 		thread_yield();
 	}
+	intr_set_level(old_level);
+
 }
 
 
@@ -245,10 +246,13 @@ lock_acquire(struct lock *lock) {
 
 	sema_down(&lock->semaphore); //
 
+
 	//after t_cur acquire the lock, then the holder of the lock is t_cur and t_cur has no waiting lock
 	lock->holder = t_cur;
 	list_insert_ordered(&t_cur->lockhold_list, &lock->elem, lock_priority_greater, NULL); // insert lock elem into lockhold_list of t_cur, so that it can be used when lock released
 	t_cur->waiting_lock = NULL;
+
+
 }
 
 // void

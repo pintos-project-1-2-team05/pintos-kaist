@@ -70,7 +70,6 @@ static void do_schedule(int status);
 static void schedule(void);
 static tid_t allocate_tid(void);
 
-// for list_insert_ordered
 
 static bool
 thread_priority_greater(const struct list_elem *lhs, const struct list_elem *rhs, void *aux UNUSED) {
@@ -221,6 +220,15 @@ thread_create(const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+
+	/* allocate file descriptor */
+	t->fdt = palloc_get_page(PAL_ZERO);
+	if (t->fdt == NULL)
+		return TID_ERROR;
+	// t->fdt[0] = 0; //0,1,2에 아무 것도 안해도 됨
+	// t->fdt[1] = 1;
+	// t->fdt[2] = 2;
+
 	/* Add to run queue. */
 	thread_unblock(t);
 	//새로 생성된 thread의 priority가 현재 thread의 priority보다 높은 경우 현재 것을 양보함
@@ -303,7 +311,6 @@ thread_exit(void) {
 #ifdef USERPROG
 	process_exit();
 #endif
-
 	/* Just set our status to dying and schedule another process.
 	   We will be destroyed during the call to schedule_tail(). */
 	intr_disable();
@@ -315,7 +322,6 @@ thread_exit(void) {
    may be scheduled again immediately at the scheduler's whim. */
 void
 thread_yield(void) {
-
 	if (!schedule_started) {
 		return;
 	}
@@ -336,17 +342,15 @@ void
 thread_set_priority(int new_priority) {
 	struct thread *t_cur = thread_current();
 
-
-	enum intr_level old_level;
-	old_level = intr_disable(); // 
+	// enum intr_level old_level;
+	// old_level = intr_disable(); // 인터럽트 끄면 console 출력에서 이상한 일 일어낫음 왜지 (리턴 때문에 인터럽트 안켜지는건 아는데 왜 출력결과가 그런지 모름)
 	t_cur->base_priority = new_priority;
 	// if current thread has donated priority that is higher than new priority, then priority should not change
 	if (!list_empty(&t_cur->lockhold_list) && new_priority <= t_cur->priority) {
+		// intr_set_level(old_level);
 		return;
 	}
 	t_cur->priority = new_priority;
-	intr_set_level(old_level);
-
 	thread_yield();
 }
 
@@ -485,6 +489,8 @@ init_thread(struct thread *t, const char *name, int priority) {
 	t->base_priority = priority;
 	list_init(&t->lockhold_list);
 	t->waiting_lock = NULL;
+
+
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should

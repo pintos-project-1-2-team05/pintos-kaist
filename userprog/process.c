@@ -21,6 +21,7 @@
 #ifdef VM
 #include "vm/vm.h"
 #endif
+#include "userprog/syscall.h"
 
 static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
@@ -50,8 +51,10 @@ process_create_initd(const char *file_name) {
 		return TID_ERROR;
 	strlcpy(fn_copy, file_name, PGSIZE);
 
+	char *arg, *brkt;
+	arg = strtok_r(file_name, " ", &brkt);
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create(file_name, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create(arg, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page(fn_copy);
 	return tid;
@@ -60,6 +63,7 @@ process_create_initd(const char *file_name) {
 /* A thread function that launches first user process. */
 static void
 initd(void *f_name) {
+
 #ifdef VM
 	supplemental_page_table_init(&thread_current()->spt);
 #endif
@@ -184,7 +188,7 @@ process_exec(void *f_name) {
 	if (!success)
 		return -1;
 
-	hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
+	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
 	// USER_STACK - _if.rsp +1 하면 커널 영역 건드려서 페이지폴트남
 
 
@@ -209,7 +213,9 @@ process_wait(tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	while (1) {}
+	 // int i = 0;
+	// input_getc();
+	// while (1) {};
 	return -1;
 }
 
@@ -217,14 +223,27 @@ process_wait(tid_t child_tid UNUSED) {
 void
 process_exit(void) {
 	struct thread *curr = thread_current();
-	// printf("%s: exit(%d)\n", curr->name, curr->exit_code); TODO process termination messages
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+	if (curr->executing_file)
+		file_close(curr->executing_file);
 
+	for (int i = 3; i < 128;i++) {
+		if (curr->fdt[i] != NULL) {
+			close(i);
+		}
+	}
+	printf("%s: exit(%d)\n", thread_name(), curr->exit_status);
+
+	// sema_up(&curr->sema_wait);
+	// sema_down(&curr->sema_exit);
+
+	palloc_free_page(curr->fdt);
 	process_cleanup();
+
 }
 
 /* Free the current process's resources. */
@@ -467,6 +486,10 @@ load(const char *file_name, struct intr_frame *if_) {
 	// push fake addr of "return addr"
 	if_->rsp -= aligned_size;
 	memset(if_->rsp, 0, aligned_size);
+
+	// deny writing on current executing file
+	t->executing_file = file;
+	file_deny_write(file);
 
 	success = true;
 
