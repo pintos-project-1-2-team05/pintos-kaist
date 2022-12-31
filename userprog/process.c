@@ -22,17 +22,29 @@
 #include "vm/vm.h"
 #endif
 #include "userprog/syscall.h"
-
+#include "filesys/inode.h"
+#include "lib/stdbool.h"
 static void process_cleanup(void);
 static bool load(const char *file_name, struct intr_frame *if_);
 static void initd(void *f_name);
 static void __do_fork(void *);
+static int sema_count;
 
-/* General process initializer for initd and other process. */
-static void
-process_init(void) {
-	struct thread *current = thread_current();
+struct thread *get_child_process(int tid) {
+	struct thread *cur = thread_current();
+	struct list *child_list = &cur->children_list;
+	struct list_elem *cur_child = list_begin(child_list);
+
+	while (cur_child != list_end(child_list)) {
+		struct thread *cur_t = list_entry(cur_child, struct thread, child_elem);
+		if (cur_t->tid == tid) {
+			return cur_t;
+		}
+		cur_child = list_next(cur_child);
+	}
+	return NULL;
 }
+
 
 /* Starts the first userland program, called "initd", loaded from FILE_NAME.
  * The new thread may be scheduled (and may even exit)
@@ -51,10 +63,10 @@ process_create_initd(const char *file_name) {
 		return TID_ERROR;
 	strlcpy(fn_copy, file_name, PGSIZE);
 
-	char *arg, *brkt;
-	arg = strtok_r(file_name, " ", &brkt);
+	char *name, *brkt;
+	name = strtok_r(file_name, " ", &brkt);
 	/* Create a new thread to execute FILE_NAME. */
-	tid = thread_create(arg, PRI_DEFAULT, initd, fn_copy);
+	tid = thread_create(name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
 		palloc_free_page(fn_copy);
 	return tid;
@@ -67,9 +79,6 @@ initd(void *f_name) {
 #ifdef VM
 	supplemental_page_table_init(&thread_current()->spt);
 #endif
-
-	process_init();
-
 	if (process_exec(f_name) < 0)
 		PANIC("Fail to launch initd\n");
 	NOT_REACHED();
@@ -79,9 +88,17 @@ initd(void *f_name) {
  * TID_ERROR if the thread cannot be created. */
 tid_t
 process_fork(const char *name, struct intr_frame *if_ UNUSED) {
+	//아니 이럴거면 if_는 왜 넘겨주는거지?
 	/* Clone current thread to new thread.*/
-	return thread_create(name,
-		PRI_DEFAULT, __do_fork, thread_current());
+	struct thread *cur = thread_current();
+
+	tid_t child_tid = thread_create(name, PRI_DEFAULT, __do_fork, cur);  // thread_create returns tid, __do_fork doesn't
+	if (child_tid == TID_ERROR)
+		return TID_ERROR;
+	sema_down(&cur->sema_fork); // Error인지 확인 후 sema_down(sema_fork) 해야 함, 에러가 아닌 경우만 down가능, 이후 __do_fork에서 sema_up해주거나, 먼저 up 되었어도 0으로 다운시켜주면 되는거니깐
+	// 만약 이게 없다면?
+	return child_tid;
+
 }
 
 #ifndef VM
@@ -96,27 +113,37 @@ duplicate_pte(uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
-
+	if (is_kernel_vaddr(va))
+		return true;
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page(parent->pml4, va);
+	if (parent_page == NULL)
+		return false;
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
+	newpage = palloc_get_page(PAL_USER);
+	if (newpage == NULL)
+		return false;
+	/* 4. TODO: Duplicate parent's page to the new page and
+	 *    TODO: check whether parent's page is writable or not (set WRITABLE
+	 *    TODO: according to the result). */
+	memcpy(newpage, parent_page, PGSIZE);
+	writable = is_writable(pte);
 
-	 /* 4. TODO: Duplicate parent's page to the new page and
-	  *    TODO: check whether parent's page is writable or not (set WRITABLE
-	  *    TODO: according to the result). */
-
-	  /* 5. Add new page to child's page table at address VA with WRITABLE
-	   *    permission. */
+	/* 5. Add new page to child's page table at address VA with WRITABLE
+	 *    permission. */
 	if (!pml4_set_page(current->pml4, va, newpage, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		printf("Failed to map user virtual page to given physical frame\n");
+		return false;
+
 	}
 	return true;
 }
 #endif
 
-/* A thread function that copies parent's execution context.
+/* A thread function that copies parent's execution context. -> fork하는 순간의 context를 잃어버리므로 복사해둘 필요가 있음, 그것이 바로 ptf
  * Hint) parent->tf does not hold the userland context of the process.
  *       That is, you are required to pass second argument of process_fork to
  *       this function. */
@@ -126,11 +153,13 @@ __do_fork(void *aux) {
 	struct thread *parent = (struct thread *)aux;
 	struct thread *current = thread_current();
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
-	bool succ = true;
+	struct intr_frame *parent_if = &parent->ptf;
+	// bool succ = true;
+
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy(&if_, parent_if, sizeof(struct intr_frame));
+	if_.R.rax = 0;
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -152,14 +181,22 @@ __do_fork(void *aux) {
 	 * TODO:       in include/filesys/file.h. Note that parent should not return
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
-
-	process_init();
-
+	int cnt = 2;
+	while (cnt < 128) {
+		if (parent->fdt[cnt]) {
+			current->fdt[cnt] = file_duplicate(parent->fdt[cnt]);
+		}
+		else {
+			current->fdt[cnt] = NULL;
+		}
+		cnt++;
+	}
+	sema_up(&parent->sema_fork);
 	/* Finally, switch to the newly created process. */
-	if (succ)
-		do_iret(&if_);
+	do_iret(&if_);
 error:
-	thread_exit();
+	sema_up(&parent->sema_fork);
+	exit(TID_ERROR);
 }
 
 /* Switch the current execution context to the f_name.
@@ -194,7 +231,6 @@ process_exec(void *f_name) {
 
 	/* Start switched process. */
 	do_iret(&_if);
-
 	NOT_REACHED();
 }
 
@@ -213,10 +249,20 @@ process_wait(tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
-	 // int i = 0;
-	// input_getc();
-	// while (1) {};
-	return -1;
+	 // if (child_tid < 0)
+	 // 	return -1;
+	struct thread *child = get_child_process(child_tid);
+	if (child == NULL)
+		return -1;
+
+	sema_down(&child->sema_wait);
+
+	int exit_status = child->exit_status;
+	list_remove(&child->child_elem);
+
+	sema_up(&child->sema_exit);
+
+	return exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -228,23 +274,24 @@ process_exit(void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-	if (curr->executing_file)
-		file_close(curr->executing_file);
-
-	for (int i = 3; i < 128;i++) {
-		if (curr->fdt[i] != NULL) {
-			close(i);
+	int i = 2;
+	while (i < 128) {
+		if (curr->fdt[i]) {
+			file_close(curr->fdt[i]);
+			curr->fdt[i] = NULL;
 		}
+		i++;
 	}
-	printf("%s: exit(%d)\n", thread_name(), curr->exit_status);
-
-	// sema_up(&curr->sema_wait);
-	// sema_down(&curr->sema_exit);
-
 	palloc_free_page(curr->fdt);
 	process_cleanup();
+	if (curr->executing_file != NULL) {
+		file_close(curr->executing_file);
+	}
 
+	sema_up(&curr->sema_wait);
+	sema_down(&curr->sema_exit);
 }
+
 
 /* Free the current process's resources. */
 static void
@@ -372,6 +419,10 @@ load(const char *file_name, struct intr_frame *if_) {
 		printf("load: %s: open failed\n", arg);
 		goto done;
 	}
+	/* execute 하는 도중 load 막기 */
+	t->executing_file = file;
+	file_deny_write(file);
+
 
 	/* Read and verify executable header. */
 	if (file_read(file, &ehdr, sizeof ehdr) != sizeof ehdr
@@ -451,7 +502,7 @@ load(const char *file_name, struct intr_frame *if_) {
 	 //Set the stack pointer at the beggining of USER_STACK -> setup_stack 에서 해줬음
 	 /* argc, argv를 저장할 변수들 */
 	int argc = 0;
-	char *argv[128];
+	char *argv[64];
 
 	//seperate file_name 
 	// parse the arguments, place them at the top of the stack and record their address
@@ -487,15 +538,11 @@ load(const char *file_name, struct intr_frame *if_) {
 	if_->rsp -= aligned_size;
 	memset(if_->rsp, 0, aligned_size);
 
-	// deny writing on current executing file
-	t->executing_file = file;
-	file_deny_write(file);
-
 	success = true;
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close(file);
+	// file_close(file);
 	return success;
 }
 

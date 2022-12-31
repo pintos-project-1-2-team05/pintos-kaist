@@ -9,8 +9,9 @@
 #ifdef VM
 #include "vm/vm.h"
 #endif
-
-
+#include "include/threads/synch.h"
+#include "filesys/file.h"
+#include "include/filesys/file.h"
 /* States in a thread's life cycle. */
 enum thread_status {
 	THREAD_RUNNING,     /* Running thread. */
@@ -101,24 +102,30 @@ struct thread {
 	struct lock * waiting_lock;
 
 	// #ifdef USERPROG
+	struct thread* parent_t; /* who is my parent? */
+	struct list children_list; /* who are my children? */
+	struct list_elem child_elem; /* child list element */
 
+	struct semaphore sema_exit;
+	struct semaphore sema_wait;
+	struct semaphore sema_fork;
 	int exit_status;
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
 	/* file descriptor */
 	struct file **fdt;
 	struct file *executing_file;
-
 	// #endif
+
+		// #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
 #endif
-
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
+	struct intr_frame ptf;				/* if from parent*/
 	unsigned magic;                     /* Detects stack overflow. */
-
 };
 
 

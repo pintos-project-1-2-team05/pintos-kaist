@@ -248,11 +248,11 @@ lock_acquire(struct lock *lock) {
 
 
 	//after t_cur acquire the lock, then the holder of the lock is t_cur and t_cur has no waiting lock
-	lock->holder = t_cur;
+
 	list_insert_ordered(&t_cur->lockhold_list, &lock->elem, lock_priority_greater, NULL); // insert lock elem into lockhold_list of t_cur, so that it can be used when lock released
 	t_cur->waiting_lock = NULL;
 
-
+	lock->holder = t_cur;
 }
 
 // void

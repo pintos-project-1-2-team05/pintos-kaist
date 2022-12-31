@@ -123,20 +123,27 @@ thread_init(void) {
 	lock_init(&tid_lock);
 	list_init(&ready_list);
 	list_init(&wait_list);
-
 	list_init(&destruction_req);
+
 
 	/* Set up a thread structure for the running thread. */
 	initial_thread = running_thread();
 	init_thread(initial_thread, "main", PRI_DEFAULT);
+
+
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid();
+
+
+
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
    Also creates the idle thread. */
 void
 thread_start(void) {
+	schedule_started = true;
+
 	/* Create the idle thread. */
 	struct semaphore idle_started;
 	sema_init(&idle_started, 0);
@@ -148,7 +155,6 @@ thread_start(void) {
 	/* Wait for the idle thread to initialize idle_thread. */
 	sema_down(&idle_started); //이제 idle thread에 아무도 접근 못함
 
-	schedule_started = true;
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -195,8 +201,8 @@ thread_print_stats(void) {
    PRIORITY, but no actual priority scheduling is implemented.
    Priority scheduling is the goal of Problem 1-3. */
 tid_t
-thread_create(const char *name, int priority,
-	thread_func *function, void *aux) {
+thread_create(const char *name, int priority, thread_func *function, void *aux)
+{
 	struct thread *t;
 	tid_t tid;
 
@@ -221,14 +227,21 @@ thread_create(const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+	/* user program */
+	t->parent_t = thread_current(); /* save parent info */
+	sema_init(&t->sema_exit, 0);
+	sema_init(&t->sema_wait, 0);
+	sema_init(&t->sema_fork, 0);
+
+	list_push_back(&thread_current()->children_list, &t->child_elem);
+
 	/* allocate file descriptor */
 	t->fdt = palloc_get_page(PAL_ZERO);
 	if (t->fdt == NULL)
 		return TID_ERROR;
-	// t->fdt[0] = 0; //0,1,2에 아무 것도 안해도 됨
-	// t->fdt[1] = 1;
-	// t->fdt[2] = 2;
-
+	// t->fdt[0] = 1; //이렇게 하고 싶겠지만 0,1,2에 아무 것도 안해도 됨, 대입하는게 오히려 바보임, 포인터에 0,1,2 넣는건 바보잖어..
+	// t->fdt[1] = 2;
+	// t->fdt[2] = 2; // stderr 고려 x
 	/* Add to run queue. */
 	thread_unblock(t);
 	//새로 생성된 thread의 priority가 현재 thread의 priority보다 높은 경우 현재 것을 양보함
@@ -490,6 +503,7 @@ init_thread(struct thread *t, const char *name, int priority) {
 	list_init(&t->lockhold_list);
 	t->waiting_lock = NULL;
 
+	list_init(&t->children_list);
 
 }
 

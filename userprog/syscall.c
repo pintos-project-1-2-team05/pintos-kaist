@@ -14,7 +14,6 @@
 #include "threads/init.h"
 struct lock filesys_lock;
 
-
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 
@@ -55,30 +54,22 @@ syscall_handler(struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
 
 	// rdi, rsi, rdx, r10, r8, r9
-
-	uint64_t syscall_number = f->R.rax;
-	switch (syscall_number) {
-
+	switch (f->R.rax) {
 	case SYS_HALT:
 		halt();
 		break;
 	case SYS_EXIT:
 		exit(f->R.rdi);
 		break;
-		// case SYS_FORK:
-		// 	fork(f->R.rdi);
-		// 	break;
-		// case SYS_EXEC:
-		// 	exec(f->R.rdi);
-		// 	break;
-		// case SYS_WAIT:
-		// 	wait(f->R.rdi);
-		// 	break;
+	case SYS_FORK:
+		memcpy(&thread_current()->ptf, f, sizeof(struct intr_frame));
+		f->R.rax = fork(f->R.rdi);
+		break;
 	case SYS_CREATE:
 		f->R.rax = create(f->R.rdi, f->R.rsi);
 		break;
 	case SYS_REMOVE:
-		f->R.rax = (f->R.rdi);
+		f->R.rax = remove(f->R.rdi);
 		break;
 	case SYS_OPEN:
 		f->R.rax = open(f->R.rdi);
@@ -92,8 +83,14 @@ syscall_handler(struct intr_frame *f UNUSED) {
 	case SYS_WRITE:
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
+	case SYS_EXEC:
+		exec(f->R.rdi);
+		break;
+	case SYS_WAIT:
+		f->R.rax = wait(f->R.rdi);
+		break;
 	case SYS_SEEK:
-		seek(f->R.rdi, f->R.rdx);
+		seek(f->R.rdi, f->R.rsi);
 		break;
 	case SYS_TELL:
 		f->R.rax = tell(f->R.rdi);
@@ -127,11 +124,38 @@ halt(void)
 
 void
 exit(int status) {
-	/* thread_current() -> status = THREAD_DYING;
-	 이는 thread_exit() 내에서 처리되므로 따로 안해줘도 됨 */
+	// thread_current()->status = THREAD_DYING;
+	/*이는 thread_exit() 내에서 처리되므로 안해줘도 됨 , 사실 여기서 하면 assertion fail*/
 	thread_current()->exit_status = status;
+	printf("%s: exit(%d)\n", thread_name(), status);
 	thread_exit();
 }
+
+int fork(const char *thread_name) {
+	check_address(thread_name);
+	return process_fork(thread_name, &thread_current()->ptf);
+}
+
+int exec(const char *file_name) {
+	check_address(file_name);
+
+	int file_size = strlen(file_name) + 1;
+	char *fn_copy = palloc_get_page(PAL_ZERO);
+	if (!fn_copy) {
+		exit(-1);
+		return -1;
+	}
+	strlcpy(fn_copy, file_name, file_size);
+	if (process_exec(fn_copy) == -1) {
+		exit(-1);
+		return -1;
+	}
+}
+
+int wait(tid_t pid) {
+	return process_wait(pid);
+}
+
 
 bool create(const char *file, unsigned initial_size) {
 	check_address(file); // 잘못된 참조면 바로 process terminate
@@ -146,18 +170,25 @@ bool remove(const char *file) {
 
 int open(const char *file) {
 	check_address(file);
+	int ret = -1;
 	struct thread *cur = thread_current();
+	lock_acquire(&filesys_lock);
 	struct file *fp = filesys_open(file);
+	lock_release(&filesys_lock);
 	if (fp) {
-		for (int i = 3; i < 128; i++) {
+		for (int i = 2; i < 128; i++) {
 			if (cur->fdt[i] == NULL) {
 				cur->fdt[i] = fp;
-				return i;
+				ret = i;
+				break;
 			}
 		}
-		file_close(fp);
+		if (ret == -1) {
+			file_close(fp);
+		}
 	}
-	return -1;
+
+	return ret;
 }
 
 
@@ -171,42 +202,50 @@ int filesize(int fd) {
 
 int read(int fd, void *buffer, unsigned size) {
 	check_address(buffer);
-	if (fd == 1)
-		return -1;
-	int byte;
+	int byte = -1;
 	if (fd == 0) {
 		byte = input_getc();
-		return byte;
 	}
-	struct thread *cur = thread_current();
-	struct file *fp = cur->fdt[fd];
-	if (fp) {
-		byte = file_read(fp, buffer, size);
+	else if (fd > 1) {
+		lock_acquire(&filesys_lock);
+		struct file *fp = thread_current()->fdt[fd];
+		lock_release(&filesys_lock);
 
-		return byte;
+		if (fp) {
+			lock_acquire(&filesys_lock);
+			byte = file_read(fp, buffer, size);
+			lock_release(&filesys_lock);
+		}
 	}
-	return -1;
+
+
+	return byte;
 }
 
 
 
 int write(int fd, const void *buffer, unsigned size) {
 	check_address(buffer);
+	int byte = -1;
 	if (fd == 1) {
-		putbuf(buffer, size);
-		return size;
+		lock_acquire(&filesys_lock);
+		putbuf(buffer, size); // 왜 얘는 lock을 해줘야하는가 -> buffer 여러개 막 들어오는거 막아줘야 해서?
+		lock_release(&filesys_lock);
+		byte = size;
 	}
-	else if (fd > 2) {
-		struct thread *cur = thread_current();
-		struct file *fp = cur->fdt[fd];
+	else if (fd > 1) {
+		lock_acquire(&filesys_lock);
+		struct file *fp = thread_current()->fdt[fd];
+		lock_release(&filesys_lock);
+
 		if (fp) {
 			lock_acquire(&filesys_lock);
-			int byte = file_write(fp, buffer, size);
+			byte = file_write(fp, buffer, size);
 			lock_release(&filesys_lock);
-			return byte;
 		}
 	}
-	return -1;
+
+	return byte;
 }
 
 /* Sets the current position in FILE to NEW_POS bytes from the
@@ -214,8 +253,8 @@ int write(int fd, const void *buffer, unsigned size) {
 void
 seek(int fd, unsigned position) {
 	struct file *fp = thread_current()->fdt[fd];
-	if (fd) {
-		file_seek(fd, position);
+	if (fp) {
+		file_seek(fp, position);
 	}
 }
 
@@ -224,7 +263,7 @@ seek(int fd, unsigned position) {
 unsigned
 tell(int fd) {
 	struct file *fp = thread_current()->fdt[fd];
-	if (fd) {
+	if (fp) {
 		return file_tell(fp);
 	}
 }
@@ -232,12 +271,13 @@ tell(int fd) {
 
 void
 close(int fd) {
+	lock_acquire(&filesys_lock);
 	struct file * fp = thread_current()->fdt[fd];
+	// lock_release(&filesys_lock);
 	if (fp) {
-		lock_acquire(&filesys_lock);
-		file_close(fp);
 		thread_current()->fdt[fd] = NULL;
-		lock_release(&filesys_lock);
+		// lock_acquire(&filesys_lock);
+		file_close(fp);
 	}
-	filesys_done();
+	lock_release(&filesys_lock);
 }
