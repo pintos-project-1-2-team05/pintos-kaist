@@ -88,7 +88,7 @@ initd(void *f_name) {
  * TID_ERROR if the thread cannot be created. */
 tid_t
 process_fork(const char *name, struct intr_frame *if_ UNUSED) {
-	//아니 이럴거면 if_는 왜 넘겨주는거지?
+	// 안쓸 거면 if_는 왜 넘겨주는거지..?
 	/* Clone current thread to new thread.*/
 	struct thread *cur = thread_current();
 
@@ -96,7 +96,6 @@ process_fork(const char *name, struct intr_frame *if_ UNUSED) {
 	if (child_tid == TID_ERROR)
 		return TID_ERROR;
 	sema_down(&cur->sema_fork); // Error인지 확인 후 sema_down(sema_fork) 해야 함, 에러가 아닌 경우만 down가능, 이후 __do_fork에서 sema_up해주거나, 먼저 up 되었어도 0으로 다운시켜주면 되는거니깐
-	// 만약 이게 없다면?
 	return child_tid;
 
 }
@@ -104,6 +103,7 @@ process_fork(const char *name, struct intr_frame *if_ UNUSED) {
 #ifndef VM
 /* Duplicate the parent's address space by passing this function to the
  * pml4_for_each. This is only for the project 2. */
+ // 각각의 pte마다 전부다 수행, pml4_for_each(parent->pml4, duplicate_pte, parent)
 static bool
 duplicate_pte(uint64_t *pte, void *va, void *aux) {
 	struct thread *current = thread_current();
@@ -114,15 +114,19 @@ duplicate_pte(uint64_t *pte, void *va, void *aux) {
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
 	if (is_kernel_vaddr(va))
-		return true;
+		return true; //true여야 pml4_for_each가 반복해나간다
 	/* 2. Resolve VA from the parent's page map level 4. */
+	/* va는 user space에 있을 것, */
 	parent_page = pml4_get_page(parent->pml4, va);
 	if (parent_page == NULL)
 		return false;
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
-	newpage = palloc_get_page(PAL_USER);
+	 /* pte 마다 page 4kb, palloc_get_page*/
+	 /* https://hyeyoo.com/91 */
+	 /* palloc은 kernel space의 page allocation인듯 https://autumnrain.tistory.com/entry/Linux%EC%9D%98-kmalloc%EA%B3%BC-vmalloc%EC%97%90-%EB%8C%80%ED%95%B4%EC%84%9C-1*/
+	newpage = palloc_get_page(PAL_USER); // 유저풀/커널풀이 결국 커널영역 내의 메모리인듯, The page table of the process is held in the kernel space! But,, for each process, 4MB is needed, modern OSes place such large page tables in  virtual kernel memory which is in hard disk
 	if (newpage == NULL)
 		return false;
 	/* 4. TODO: Duplicate parent's page to the new page and
@@ -137,7 +141,6 @@ duplicate_pte(uint64_t *pte, void *va, void *aux) {
 		/* 6. TODO: if fail to insert page, do error handling. */
 		printf("Failed to map user virtual page to given physical frame\n");
 		return false;
-
 	}
 	return true;
 }
@@ -182,7 +185,7 @@ __do_fork(void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 	int cnt = 2;
-	while (cnt < 128) {
+	while (cnt < 512) {
 		if (parent->fdt[cnt]) {
 			current->fdt[cnt] = file_duplicate(parent->fdt[cnt]);
 		}
@@ -226,7 +229,7 @@ process_exec(void *f_name) {
 		return -1;
 
 	// hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
-	// USER_STACK - _if.rsp +1 하면 커널 영역 건드려서 페이지폴트남
+	// USER_STACK - _if.rsp +1 하면 커널 영역 건드려서X, 할당되지 않은 유저영역 건드려서O 페이지폴트남
 
 
 	/* Start switched process. */
@@ -274,19 +277,19 @@ process_exit(void) {
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
+	if (curr->executing_file != NULL) {
+		file_close(curr->executing_file);
+	}
 	int i = 2;
-	while (i < 128) {
+	while (i < 512) {
 		if (curr->fdt[i]) {
 			file_close(curr->fdt[i]);
 			curr->fdt[i] = NULL;
 		}
 		i++;
 	}
-	palloc_free_page(curr->fdt);
+	palloc_free_multiple(curr->fdt, 1);
 	process_cleanup();
-	if (curr->executing_file != NULL) {
-		file_close(curr->executing_file);
-	}
 
 	sema_up(&curr->sema_wait);
 	sema_down(&curr->sema_exit);
@@ -512,15 +515,15 @@ load(const char *file_name, struct intr_frame *if_) {
 		memcpy(if_->rsp, arg, arg_len);
 		argv[argc++] = if_->rsp; // 순서는 중요하지 않음 ㅇㅇ 난 위에서부터 차례대로 argv[0] argv[1] 순서로 넣어줄거임  밑에서 잘 주면 됨~
 	}
+	size_t aligned_size = sizeof(void *);
 
 	// 패딩 넣어주기
-	if (if_->rsp % 8 != 0) {
-		memset(if_->rsp - if_->rsp % 8, 0, if_->rsp % 8);
-		if_->rsp -= if_->rsp % 8; // rsp를 8의 배수로 만드는데 빼는 이유 -> 스택이 아래로 자라니까
+	if (if_->rsp % aligned_size != 0) {
+		memset(if_->rsp - if_->rsp % aligned_size, 0, if_->rsp % aligned_size);
+		if_->rsp -= if_->rsp % aligned_size; // rsp를 8의 배수로 만드는데 빼는 이유 -> 스택이 아래로 자라니까
 	}
 
 
-	size_t aligned_size = sizeof(void *);
 	if_->rsp -= aligned_size;
 	memset(if_->rsp, 0, aligned_size); // argv[argc] Data = 0 , null pointer sentinel이라고 보면 됨
 
@@ -533,7 +536,6 @@ load(const char *file_name, struct intr_frame *if_) {
 	// push argv and argc in that order
 	if_->R.rdi = argc;
 	if_->R.rsi = if_->rsp; // argv address
-
 	// push fake addr of "return addr"
 	if_->rsp -= aligned_size;
 	memset(if_->rsp, 0, aligned_size);
@@ -542,7 +544,7 @@ load(const char *file_name, struct intr_frame *if_) {
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	// file_close(file);
+	// file_close(file); // file_deny_write로 점유중, close할 이유 없음, 나중에 process_exit할 때 close할 것이라 여기서 하면 커널 패닉이 뜨게 됨
 	return success;
 }
 

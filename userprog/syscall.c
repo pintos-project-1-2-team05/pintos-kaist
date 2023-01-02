@@ -11,7 +11,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "threads/synch.h"
-#include "threads/init.h"
+#include "threads/init.h" 
 struct lock filesys_lock;
 
 void syscall_entry(void);
@@ -52,8 +52,10 @@ syscall_init(void) {
 void
 syscall_handler(struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
-
-	// rdi, rsi, rdx, r10, r8, r9
+	/*
+	 x86-64 convention : function return value to rax
+	 */
+	 // rdi, rsi, rdx, r10, r8, r9
 	switch (f->R.rax) {
 	case SYS_HALT:
 		halt();
@@ -176,7 +178,7 @@ int open(const char *file) {
 	struct file *fp = filesys_open(file);
 	lock_release(&filesys_lock);
 	if (fp) {
-		for (int i = 2; i < 128; i++) {
+		for (int i = 2; i < 512; i++) {
 			if (cur->fdt[i] == NULL) {
 				cur->fdt[i] = fp;
 				ret = i;
@@ -217,19 +219,15 @@ int read(int fd, void *buffer, unsigned size) {
 			lock_release(&filesys_lock);
 		}
 	}
-
-
 	return byte;
 }
-
-
 
 int write(int fd, const void *buffer, unsigned size) {
 	check_address(buffer);
 	int byte = -1;
 	if (fd == 1) {
 		lock_acquire(&filesys_lock);
-		putbuf(buffer, size); // 왜 얘는 lock을 해줘야하는가 -> buffer 여러개 막 들어오는거 막아줘야 해서?
+		putbuf(buffer, size); // (project1에서 선점 막 일어나는 코드로 작성했을 때)왜 얘는 lock을 해줘야하는가 -> buffer 여러개 막 들어오는거 막아줘야 해서?
 		lock_release(&filesys_lock);
 		byte = size;
 	}

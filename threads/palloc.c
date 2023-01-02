@@ -91,7 +91,6 @@ resolve_area_info(struct area *base_mem, struct area *ext_mem) {
 			printf("%llx ~ %llx %d\n", start, end, entry->type);
 
 			struct area *area = start < BASE_MEM_THRESHOLD ? base_mem : ext_mem;
-
 			// First entry that belong to this area.
 			if (area->size == 0) {
 				*area = (struct area){
@@ -110,6 +109,8 @@ resolve_area_info(struct area *base_mem, struct area *ext_mem) {
 				// Extend size
 				area->size += size;
 			}
+			// printf("%p", area->size);
+
 		}
 	}
 }
@@ -207,7 +208,7 @@ populate_pools(struct area *base_mem, struct area *ext_mem) {
 			uint64_t end = start + size;
 
 			// TODO: add 0x1000 ~ 0x200000, This is not a matter for now.
-			// All the pages are unuable
+			// All the pages are unusable
 			if (end < usable_bound)
 				continue;
 

@@ -70,6 +70,7 @@ static void do_schedule(int status);
 static void schedule(void);
 static tid_t allocate_tid(void);
 
+void test_max_priority(void);
 
 static bool
 thread_priority_greater(const struct list_elem *lhs, const struct list_elem *rhs, void *aux UNUSED) {
@@ -235,7 +236,7 @@ thread_create(const char *name, int priority, thread_func *function, void *aux)
 
 	list_push_back(&thread_current()->children_list, &t->child_elem);
 
-	/* allocate file descriptor */
+	/* allocate file descriptor on kernel virtual address space */
 	t->fdt = palloc_get_page(PAL_ZERO);
 	if (t->fdt == NULL)
 		return TID_ERROR;
@@ -343,7 +344,7 @@ thread_yield(void) {
 
 	ASSERT(!intr_context());
 
-	old_level = intr_disable(); // 
+	old_level = intr_disable();
 	if (curr != idle_thread)
 		list_insert_ordered(&ready_list, &curr->elem, thread_priority_greater, NULL);
 	do_schedule(THREAD_READY);
@@ -355,12 +356,10 @@ void
 thread_set_priority(int new_priority) {
 	struct thread *t_cur = thread_current();
 
-	// enum intr_level old_level;
-	// old_level = intr_disable(); // 인터럽트 끄면 console 출력에서 이상한 일 일어낫음 왜지 (리턴 때문에 인터럽트 안켜지는건 아는데 왜 출력결과가 그런지 모름)
+
 	t_cur->base_priority = new_priority;
 	// if current thread has donated priority that is higher than new priority, then priority should not change
 	if (!list_empty(&t_cur->lockhold_list) && new_priority <= t_cur->priority) {
-		// intr_set_level(old_level);
 		return;
 	}
 	t_cur->priority = new_priority;
@@ -439,35 +438,6 @@ idle(void *idle_started_ UNUSED) {
 		wasting as much as one clock tick worth of time.
 		*/
 		asm volatile ("sti; hlt" : : : "memory");
-
-		/* HLT 명령은 CPU가 작동할 필요가 없을 때는 멈췄다가 필요할 때만 작동하게 하게 하는 기능을 한다. https://pat.im/53 참조
-		   See [IA32-v2a] "HLT", [IA32-v2b] "STI", and [IA32-v3a]
-		   7.11.1 "HLT Instruction".
-
-			In most cases, STI sets the interrupt flag (IF) in the EFLAGS register.
-			This allows the processor to respond to maskable hardware interrupts.
-			https://www.felixcloutier.com/x86/hlt
-
-			It's usually used in OS code, and executed when the OS has no work to
-			dispatch. For example, it's common in the middle of the OS's idle
-			loop. These days the main thing this does is drop the CPU into a
-			power saving state. As someone else mentioned, it's useful for
-			virtual machines as well, where it allows the hypervisor to stop
-			wasting resources emulating the guest's idle loop.
-
-			https://lkml.iu.edu/hypermail/linux/kernel/1009.2/01406.html
-			Atomically enable interrupts and put the CPU to sleep
-			https://docs.rs/x86_64/0.9.6/x86_64/instructions/interrupts/fn.enable_interrupts_and_hlt.html
-
-			http://egloos.zum.com/agbottlep/v/147882
-			event가 발생하면 깨어나게 된다.
-
-			thread_tick (int64_t tick) : Called by the timer interrupt handler at each timer tick.
-			Thus, this function runs in an external interrupt context.
-			The parameter 'tick' is the current tick count held by
-			the timer device.
-		*/
-
 
 	}
 }
@@ -688,3 +658,17 @@ allocate_tid(void) {
 
 
 /* ________________ FROM HERE NEW FUNCTIONS ________________ */
+
+void test_max_priority(void)
+{
+	if (!list_empty(&ready_list))
+	{
+		struct thread *prihigh_thread = list_begin(&ready_list);
+		if (thread_priority_greater(prihigh_thread, &thread_current()->elem, NULL))
+		{
+
+			thread_yield();
+
+		}
+	}
+}
