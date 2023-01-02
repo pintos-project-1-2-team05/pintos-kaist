@@ -3,6 +3,16 @@
         "process.h": "c",
         "syscall-nr.h": "c",
         "interrupt.h": "c",
-        "syscall.h": "c"
+        "syscall.h": "c",
+        "intrinsic.h": "c",
+        "*.inc": "c",
+        "gdt.h": "c",
+        "vaddr.h": "c",
+        "timer.h": "c",
+        "mmu.h": "c",
+        "thread.h": "c",
+        "intr-stubs.h": "c",
+        "stdio.h": "c",
+        "stdint.h": "c"
     }
 }

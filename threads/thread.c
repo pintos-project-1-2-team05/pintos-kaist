@@ -11,6 +11,7 @@
 #include "threads/synch.h"
 #include "threads/vaddr.h"
 #include "intrinsic.h"
+#include "threads/malloc.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -213,6 +214,25 @@ thread_create (const char *name, int priority,
 	t->tf.ss = SEL_KDSEG;
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
+
+	/* ------------ USERPROG ------------ */
+	t->parent_t = thread_current(); /* 부모 프로세스 저장 */
+	sema_init(&t->sema_exit, 0); /* exit 세마포어 0으로 초기화 */
+	sema_init(&t->sema_wait, 0); /* wait 세마포어 0으로 초기화 */
+	sema_init(&t->sema_fork, 0); /* fork 세마포어 0으로 초기화 */
+
+	/* 자식 리스트에 추가 */
+	list_push_back(&thread_current()->children_list, &t->child_elem);
+
+	// * 파일 디스크립터 초기값 설정
+	t->fdt = palloc_get_page(PAL_ZERO);
+	// t->fdt = palloc_get_multiple (PAL_ZERO, FDT_PAGES);
+	if (t->fdt == NULL) { return TID_ERROR;	}
+
+	t->fdt[0] = 1;
+	t->fdt[1] = 2;
+	t->next_fd = 2;
+	/* ------------ USERPROG ------------ */
 
 	/* Add to run queue. */
 	thread_unblock (t);
@@ -444,6 +464,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	list_init(&t->lock_hold_list);
 	t->old_priority = priority;
 	t->wait_on_lock = NULL;
+	list_init(&t->children_list);
+	t->exit_status = 0;
 }
 
 /* Chooses and returns the next thread to be scheduled.  Should
