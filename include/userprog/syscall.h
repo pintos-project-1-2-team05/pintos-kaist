@@ -4,6 +4,9 @@
 #include <stdbool.h>
 #include "threads/thread.h"
 
+struct lock filesys_lock;
+
+
 void syscall_init(void);
 
 

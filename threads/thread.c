@@ -70,7 +70,6 @@ static void do_schedule(int status);
 static void schedule(void);
 static tid_t allocate_tid(void);
 
-void test_max_priority(void);
 
 static bool
 thread_priority_greater(const struct list_elem *lhs, const struct list_elem *rhs, void *aux UNUSED) {
@@ -205,15 +204,18 @@ tid_t
 thread_create(const char *name, int priority, thread_func *function, void *aux)
 {
 	struct thread *t;
+	struct thread *parent = thread_current();
 	tid_t tid;
 
 	ASSERT(function != NULL);
-
 	/* Allocate thread. */
 	t = palloc_get_page(PAL_ZERO);
-	if (t == NULL)
+	if (t == NULL) {
+		if ((*(struct intr_frame *)aux).R.rdi == parent->ptf.R.rdi) { // if_로 넘겨준게 현재 parent의 if라면, 즉 fork에서 호출한거라면!
+			sema_up(&parent->sema_fork);
+		}
 		return TID_ERROR;
-
+	}
 	/* Initialize thread. */
 	init_thread(t, name, priority);
 	tid = t->tid = allocate_tid();
@@ -229,25 +231,30 @@ thread_create(const char *name, int priority, thread_func *function, void *aux)
 	t->tf.eflags = FLAG_IF;
 
 	/* user program */
-	t->parent_t = thread_current(); /* save parent info */
+	t->parent_t = parent; /* save parent info */
 	sema_init(&t->sema_exit, 0);
 	sema_init(&t->sema_wait, 0);
 	sema_init(&t->sema_fork, 0);
 
-	list_push_back(&thread_current()->children_list, &t->child_elem);
+	list_push_back(&parent->children_list, &t->child_elem);
 
 	/* allocate file descriptor on kernel virtual address space */
 	t->fdt = palloc_get_page(PAL_ZERO);
-	if (t->fdt == NULL)
+	if (t->fdt == NULL) {
+		if ((*(struct intr_frame *)aux).R.rdi == parent->ptf.R.rdi) { // if_로 넘겨준게 현재 parent의 if라면, 즉 fork에서 호출한거라면!
+			sema_up(&parent->sema_fork);
+		}
 		return TID_ERROR;
-	// t->fdt[0] = 1; //이렇게 하고 싶겠지만 0,1,2에 아무 것도 안해도 됨, 대입하는게 오히려 바보임, 포인터에 0,1,2 넣는건 바보잖어..
-	// t->fdt[1] = 2;
+	}
+	// t->fdt[0] = 0; //이렇게 하고 싶겠지만 0,1,2에 아무 것도 안해도 됨, 대입하는게 오히려 바보임, 포인터에 0,1,2 넣는건 바보잖어..
+	// t->fdt[1] = 1;
 	// t->fdt[2] = 2; // stderr 고려 x
 	/* Add to run queue. */
 	thread_unblock(t);
 	//새로 생성된 thread의 priority가 현재 thread의 priority보다 높은 경우 현재 것을 양보함
-	if (priority > thread_current()->priority)
+	if (priority > parent->priority) {
 		thread_yield();
+	}
 
 	return tid;
 }
@@ -363,7 +370,13 @@ thread_set_priority(int new_priority) {
 		return;
 	}
 	t_cur->priority = new_priority;
+
+	// if (intr_context()) {
+	// 	intr_yield_on_return(); -> 함부로 쓰면 안된다잉
+	// }
+	// else {
 	thread_yield();
+	// }
 }
 
 /* Returns the current thread's priority. */
@@ -444,7 +457,7 @@ idle(void *idle_started_ UNUSED) {
 
 /* Function used as the basis for a kernel thread. */
 static void
-kernel_thread(thread_func *function, void *aux) {
+kernel_thread(thread_func * function, void *aux) {
 	ASSERT(function != NULL);
 
 	intr_enable();       /* The scheduler runs with interrupts off. */
@@ -666,8 +679,13 @@ void test_max_priority(void)
 		struct thread *prihigh_thread = list_begin(&ready_list);
 		if (thread_priority_greater(prihigh_thread, &thread_current()->elem, NULL))
 		{
+			if (intr_context()) {
+				intr_yield_on_return();
+			}
+			else {
+				thread_yield();
+			}
 
-			thread_yield();
 
 		}
 	}

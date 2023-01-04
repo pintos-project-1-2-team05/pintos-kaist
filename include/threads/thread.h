@@ -101,7 +101,7 @@ struct thread {
 	struct list lockhold_list;
 	struct lock * waiting_lock;
 
-	// #ifdef USERPROG
+#ifdef USERPROG
 	struct thread* parent_t; /* who is my parent? */
 	struct list children_list; /* who are my children? */
 	struct list_elem child_elem; /* child list element */
@@ -115,9 +115,9 @@ struct thread {
 	/* file descriptor */
 	struct file **fdt;
 	struct file *executing_file;
-	// #endif
+#endif
 
-		// #endif
+	// #endif
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
@@ -139,7 +139,7 @@ void thread_start(void);
 
 void thread_tick(void);
 void thread_print_stats(void);
-
+void test_max_priority(void);
 typedef void thread_func(void *aux);
 tid_t thread_create(const char *name, int priority, thread_func *, void *);
 

@@ -87,17 +87,13 @@ initd(void *f_name) {
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t
-process_fork(const char *name, struct intr_frame *if_ UNUSED) {
-	// 안쓸 거면 if_는 왜 넘겨주는거지..?
+process_fork(const char *name, struct intr_frame *if_) {
 	/* Clone current thread to new thread.*/
 	struct thread *cur = thread_current();
 
-	tid_t child_tid = thread_create(name, PRI_DEFAULT, __do_fork, cur);  // thread_create returns tid, __do_fork doesn't
-	if (child_tid == TID_ERROR)
-		return TID_ERROR;
-	sema_down(&cur->sema_fork); // Error인지 확인 후 sema_down(sema_fork) 해야 함, 에러가 아닌 경우만 down가능, 이후 __do_fork에서 sema_up해주거나, 먼저 up 되었어도 0으로 다운시켜주면 되는거니깐
+	tid_t child_tid = thread_create(name, PRI_DEFAULT, __do_fork, if_);
+	sema_down(&cur->sema_fork);
 	return child_tid;
-
 }
 
 #ifndef VM
@@ -139,7 +135,8 @@ duplicate_pte(uint64_t *pte, void *va, void *aux) {
 	 *    permission. */
 	if (!pml4_set_page(current->pml4, va, newpage, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
-		printf("Failed to map user virtual page to given physical frame\n");
+
+		// printf("Failed to map user virtual page to given physical frame\n");
 		return false;
 	}
 	return true;
@@ -153,10 +150,11 @@ duplicate_pte(uint64_t *pte, void *va, void *aux) {
 static void
 __do_fork(void *aux) {
 	struct intr_frame if_;
-	struct thread *parent = (struct thread *)aux;
 	struct thread *current = thread_current();
-	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if = &parent->ptf;
+	struct thread *parent = thread_current()->parent_t;
+
+	/* DONE: somehow pass the parent_if. (i.e. process_fork()'s if_) */
+	struct intr_frame *parent_if = (struct thread *)aux;
 	// bool succ = true;
 
 
@@ -179,20 +177,20 @@ __do_fork(void *aux) {
 		goto error;
 #endif
 
-	/* TODO: Your code goes here.
-	 * TODO: Hint) To duplicate the file object, use `file_duplicate`
-	 * TODO:       in include/filesys/file.h. Note that parent should not return
-	 * TODO:       from the fork() until this function successfully duplicates
-	 * TODO:       the resources of parent.*/
-	int cnt = 2;
-	while (cnt < 512) {
-		if (parent->fdt[cnt]) {
-			current->fdt[cnt] = file_duplicate(parent->fdt[cnt]);
+	/* DONE: Your code goes here.
+	 * DONE: Hint) To duplicate the file object, use `file_duplicate`
+	 * DONE:       in include/filesys/file.h. Note that parent should not return
+	 * DONE:       from the fork() until this function successfully duplicates
+	 * DONE:       the resources of parent.*/
+	int i = 2;
+	while (i < 512) {
+		if (parent->fdt[i]) {
+			current->fdt[i] = file_duplicate(parent->fdt[i]);
 		}
 		else {
-			current->fdt[cnt] = NULL;
+			current->fdt[i] = NULL;
 		}
-		cnt++;
+		i++;
 	}
 	sema_up(&parent->sema_fork);
 	/* Finally, switch to the newly created process. */
@@ -273,22 +271,24 @@ void
 process_exit(void) {
 	struct thread *curr = thread_current();
 
-	/* TODO: Your code goes here.
+	/* DONE: Your code goes here.
 	 * TODO: Implement process termination message (see
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
-	if (curr->executing_file != NULL) {
-		file_close(curr->executing_file);
-	}
 	int i = 2;
 	while (i < 512) {
-		if (curr->fdt[i]) {
+		if (curr->fdt[i]) { // palloc_get_page(PAL_ZERO); 로 초기화해줘서 ㄱㄴ
 			file_close(curr->fdt[i]);
 			curr->fdt[i] = NULL;
 		}
 		i++;
+
 	}
-	palloc_free_multiple(curr->fdt, 1);
+
+	palloc_free_page(curr->fdt);
+	if (curr->executing_file != NULL) {
+		file_close(curr->executing_file);
+	}
 	process_cleanup();
 
 	sema_up(&curr->sema_wait);
@@ -417,7 +417,10 @@ load(const char *file_name, struct intr_frame *if_) {
 
 
 	/* Open executable file. */
+	lock_acquire(&filesys_lock);
 	file = filesys_open(arg);
+	lock_release(&filesys_lock);
+
 	if (file == NULL) {
 		printf("load: %s: open failed\n", arg);
 		goto done;
@@ -500,7 +503,7 @@ load(const char *file_name, struct intr_frame *if_) {
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
-	/* TODO: Your code goes here.
+	/* DONE: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
 	 //Set the stack pointer at the beggining of USER_STACK -> setup_stack 에서 해줬음
 	 /* argc, argv를 저장할 변수들 */

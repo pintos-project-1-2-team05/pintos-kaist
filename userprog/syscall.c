@@ -1,3 +1,4 @@
+
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
@@ -145,12 +146,10 @@ int exec(const char *file_name) {
 	char *fn_copy = palloc_get_page(PAL_ZERO);
 	if (!fn_copy) {
 		exit(-1);
-		return -1;
 	}
 	strlcpy(fn_copy, file_name, file_size);
 	if (process_exec(fn_copy) == -1) {
 		exit(-1);
-		return -1;
 	}
 }
 
@@ -161,11 +160,17 @@ int wait(tid_t pid) {
 
 bool create(const char *file, unsigned initial_size) {
 	check_address(file); // 잘못된 참조면 바로 process terminate
+	// lock_acquire(&filesys_lock);
+	// bool ret = filesys_create(file, initial_size);
+	// lock_release(&filesys_lock);
 	return filesys_create(file, initial_size);
 }
 
 bool remove(const char *file) {
 	check_address(file);
+	// lock_acquire(&filesys_lock);
+	// bool ret = filesys_remove(file);
+	// lock_release(&filesys_lock);
 	return filesys_remove(file);
 }
 
@@ -209,10 +214,7 @@ int read(int fd, void *buffer, unsigned size) {
 		byte = input_getc();
 	}
 	else if (fd > 1) {
-		lock_acquire(&filesys_lock);
 		struct file *fp = thread_current()->fdt[fd];
-		lock_release(&filesys_lock);
-
 		if (fp) {
 			lock_acquire(&filesys_lock);
 			byte = file_read(fp, buffer, size);
@@ -226,23 +228,15 @@ int write(int fd, const void *buffer, unsigned size) {
 	check_address(buffer);
 	int byte = -1;
 	if (fd == 1) {
-		lock_acquire(&filesys_lock);
 		putbuf(buffer, size); // (project1에서 선점 막 일어나는 코드로 작성했을 때)왜 얘는 lock을 해줘야하는가 -> buffer 여러개 막 들어오는거 막아줘야 해서?
-		lock_release(&filesys_lock);
 		byte = size;
 	}
 	else if (fd > 1) {
-		lock_acquire(&filesys_lock);
 		struct file *fp = thread_current()->fdt[fd];
-		lock_release(&filesys_lock);
-
 		if (fp) {
-			lock_acquire(&filesys_lock);
 			byte = file_write(fp, buffer, size);
-			lock_release(&filesys_lock);
 		}
 	}
-
 	return byte;
 }
 
@@ -266,16 +260,11 @@ tell(int fd) {
 	}
 }
 
-
 void
 close(int fd) {
-	lock_acquire(&filesys_lock);
 	struct file * fp = thread_current()->fdt[fd];
-	// lock_release(&filesys_lock);
 	if (fp) {
 		thread_current()->fdt[fd] = NULL;
-		// lock_acquire(&filesys_lock);
 		file_close(fp);
 	}
-	lock_release(&filesys_lock);
 }

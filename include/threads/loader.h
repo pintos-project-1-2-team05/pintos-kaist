@@ -6,7 +6,7 @@
 #define LOADER_END  0x7e00      /* Physical address of end of loader. */
 
 /* Physical address of kernel base. */
-#define LOADER_KERN_BASE 0x8004000000
+#define LOADER_KERN_BASE 0x8004000000 // more than 500 GB
 
 /* Kernel virtual address at which all physical memory is mapped. */
 #define LOADER_PHYS_BASE 0x200000
